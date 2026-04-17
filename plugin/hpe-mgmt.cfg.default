@@ -17,3 +17,7 @@ MCP_VER="8"
 
 # Verify HPE GPG signature on every RPM (recommended).
 VERIFY_GPG="1"
+
+# Start the net-snmp bridge daemons (*_rev variants).  Only useful if you
+# run snmpd on the host and want AMS metrics exposed to it.  Off by default.
+ENABLE_SNMP_REV="0"

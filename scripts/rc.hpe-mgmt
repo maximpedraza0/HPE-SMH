@@ -1,12 +1,26 @@
 #!/bin/bash
-# /etc/rc.d/rc.hpe-mgmt -- sysv-ish service manager for HPE management
-# daemons on unRAID (no systemd).  Called from the plugin's install script
-# and from unRAID array event hooks.
+# /etc/rc.d/rc.hpe-mgmt -- service manager for HPE management daemons on
+# unRAID (no systemd).  Encodes the ExecStart / EnvironmentFile / dependency
+# information from the vendor's systemd unit files.
 #
 #   rc.hpe-mgmt start        start services enabled by STACK
 #   rc.hpe-mgmt stop         stop everything we may have started
 #   rc.hpe-mgmt restart      stop + start
-#   rc.hpe-mgmt status       print a one-line status per daemon
+#   rc.hpe-mgmt status       per-daemon status line
+#
+# Notes on the layout:
+#
+# * The "_rev" daemons (smad_rev, amsd_rev, cpq*_rev) exist only to feed
+#   an SNMP master agent (net-snmp).  We leave them off by default;
+#   setting ENABLE_SNMP_REV=1 in the config turns them on.
+#
+# * Each daemon has a matching /etc/sysconfig/<name> file (shipped by the
+#   RPM) containing OPTIONS="".  We source it and pass ${OPTIONS} through.
+#
+# * We pre-check ldd before starting each binary; a daemon whose shared
+#   libraries are missing (e.g. amsd without libsystemd.so.0 on an
+#   install that skipped the compat libs bundle) is reported and
+#   skipped rather than left crashing in a restart loop.
 
 set -u
 
@@ -16,72 +30,112 @@ PID_DIR="/var/run/${PLUGIN_NAME}"
 LOG_DIR="/var/log/${PLUGIN_NAME}"
 
 STACK="modern"
+ENABLE_SNMP_REV="0"
 [[ -f "${CFG}" ]] && . "${CFG}"
 
 mkdir -p "${PID_DIR}" "${LOG_DIR}"
 
-# Daemons we manage, in start order.
-# Each entry: "<name> <binary-path>".  Binaries only started if present.
-MODERN_DAEMONS=(
-    "amsd            /sbin/amsd"
-)
+# Daemon table.  One entry per line, tab-separated:
+#   name    binary              env-file                    extra-args
+# Extra-args is what goes in ExecStart after the binary.  For most amsd
+# daemons it's "-f" (foreground); smad itself has no flag.
+read -r -d '' MODERN_TABLE <<'EOT' || true
+smad	/sbin/smad	/etc/sysconfig/smad
+ahslog	/sbin/ahslog	/etc/sysconfig/ahslog	-f
+amsd	/sbin/amsd	/etc/sysconfig/amsd	-f
+cpqFca	/sbin/cpqFca	/etc/sysconfig/cpqFca	-f
+cpqIde	/sbin/cpqIde	/etc/sysconfig/cpqIde	-f
+cpqScsi	/sbin/cpqScsi	/etc/sysconfig/cpqScsi	-f
+cpqiScsi	/sbin/cpqiScsi	/etc/sysconfig/cpqiScsi	-f
+mr_cpqScsi	/sbin/mr_cpqScsi	/etc/sysconfig/mr_cpqScsi	-f
+EOT
 
-LEGACY_DAEMONS=(
-    "cmathreshd      /sbin/cmathreshd"
-    "cmapeerd        /sbin/cmapeerd"
-    "cmahealthd      /sbin/cmahealthd"
-    "cmahostd        /sbin/cmahostd"
-    "cmaperfd        /sbin/cmaperfd"
-    "cmasm2d         /sbin/cmasm2d"
-    "cmaidad         /sbin/cmaidad"
-    "hpsmhd          /opt/hp/hpsmh/sbin/hpsmhd"
-)
+read -r -d '' MODERN_SNMP_REV_TABLE <<'EOT' || true
+smad_rev	/sbin/smad_rev	/etc/sysconfig/smad_rev
+amsd_rev	/sbin/amsd_rev	/etc/sysconfig/amsd_rev	-f
+cpqFca_rev	/sbin/cpqFca_rev	/etc/sysconfig/cpqFca_rev	-f
+cpqIde_rev	/sbin/cpqIde_rev	/etc/sysconfig/cpqIde_rev	-f
+EOT
 
-selected_daemons() {
+read -r -d '' LEGACY_TABLE <<'EOT' || true
+cmathreshd	/sbin/cmathreshd	/etc/sysconfig/cmathreshd
+cmapeerd	/sbin/cmapeerd	/etc/sysconfig/cmapeerd
+cmahealthd	/sbin/cmahealthd	/etc/sysconfig/cmahealthd
+cmahostd	/sbin/cmahostd	/etc/sysconfig/cmahostd
+cmaperfd	/sbin/cmaperfd	/etc/sysconfig/cmaperfd
+cmasm2d	/sbin/cmasm2d	/etc/sysconfig/cmasm2d
+cmaidad	/sbin/cmaidad	/etc/sysconfig/cmaidad
+hpsmhd	/opt/hp/hpsmh/sbin/hpsmhd	/etc/sysconfig/hpsmhd
+EOT
+
+daemon_table() {
     case "${STACK}" in
-        modern) printf '%s\n' "${MODERN_DAEMONS[@]}" ;;
-        legacy) printf '%s\n' "${LEGACY_DAEMONS[@]}" ;;
-        both)   printf '%s\n' "${MODERN_DAEMONS[@]}" "${LEGACY_DAEMONS[@]}" ;;
-        *)      printf '%s\n' "${MODERN_DAEMONS[@]}" ;;
+        modern) echo "${MODERN_TABLE}" ;;
+        legacy) echo "${LEGACY_TABLE}" ;;
+        both)
+            echo "${MODERN_TABLE}"
+            echo "${LEGACY_TABLE}"
+            ;;
+        *)      echo "${MODERN_TABLE}" ;;
     esac
+    if [[ "${ENABLE_SNMP_REV}" == "1" && ( "${STACK}" == "modern" || "${STACK}" == "both" ) ]]; then
+        echo "${MODERN_SNMP_REV_TABLE}"
+    fi
 }
 
 is_running() {
-    local name="$1" pidfile="${PID_DIR}/${1}.pid"
+    local pidfile="${PID_DIR}/$1.pid"
     [[ -s "${pidfile}" ]] || return 1
     local pid; pid="$(cat "${pidfile}")"
     [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null
 }
 
+# Check a binary can actually run (all its shared libs resolve).
+# Return 0 if OK, 1 otherwise.
+bin_runnable() {
+    local bin="$1"
+    [[ -x "${bin}" ]] || return 1
+    ldd "${bin}" 2>/dev/null | grep -q "not found" && return 1
+    return 0
+}
+
 start_one() {
-    local name="$1" bin="$2"
+    local name="$1" bin="$2" envfile="$3" args="$4"
     if [[ ! -x "${bin}" ]]; then
-        echo "  skip ${name} (not installed)"
+        printf '  %-12s skip (binary missing)\n' "${name}"
+        return 0
+    fi
+    if ! bin_runnable "${bin}"; then
+        local missing
+        missing="$(ldd "${bin}" 2>/dev/null | awk '/not found/ {print $1}' | paste -sd, -)"
+        printf '  %-12s skip (missing libs: %s)\n' "${name}" "${missing}"
         return 0
     fi
     if is_running "${name}"; then
-        echo "  ok   ${name} already running"
+        printf '  %-12s already running\n' "${name}"
         return 0
     fi
-    echo "  start ${name}"
-    # Launch detached, capture PID.  Daemons that self-daemonise will
-    # double-fork; we still record the initial child PID for tracking.
-    "${bin}" >>"${LOG_DIR}/${name}.log" 2>&1 &
+    local options=""
+    [[ -r "${envfile}" ]] && { . "${envfile}" 2>/dev/null || true; options="${OPTIONS:-}"; }
+    printf '  %-12s start\n' "${name}"
+    ( "${bin}" ${args} ${options} >>"${LOG_DIR}/${name}.log" 2>&1 ) &
     echo $! >"${PID_DIR}/${name}.pid"
-    sleep 0.2
-    is_running "${name}" || echo "    WARN: ${name} did not stay up, see ${LOG_DIR}/${name}.log"
+    sleep 0.3
+    if ! is_running "${name}"; then
+        printf '  %-12s did not stay up — see %s\n' "${name}" "${LOG_DIR}/${name}.log"
+    fi
 }
 
 stop_one() {
-    local name="$1" pidfile="${PID_DIR}/${1}.pid"
+    local name="$1" pidfile="${PID_DIR}/$1.pid"
     if ! is_running "${name}"; then
         rm -f "${pidfile}"
         return 0
     fi
     local pid; pid="$(cat "${pidfile}")"
-    echo "  stop ${name} (pid ${pid})"
+    printf '  %-12s stop (pid %s)\n' "${name}" "${pid}"
     kill "${pid}" 2>/dev/null || true
-    for _ in 1 2 3 4 5; do
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
         kill -0 "${pid}" 2>/dev/null || break
         sleep 0.5
     done
@@ -89,36 +143,51 @@ stop_one() {
     rm -f "${pidfile}"
 }
 
+foreach_entry() {
+    # Call callback with: name binary envfile args
+    local line name bin envfile args
+    while IFS=$'\t' read -r name bin envfile args; do
+        [[ -z "${name:-}" ]] && continue
+        "$1" "${name}" "${bin}" "${envfile}" "${args}"
+    done < <(daemon_table)
+}
+
+foreach_entry_reverse() {
+    local -a lines=()
+    mapfile -t lines < <(daemon_table)
+    for (( i=${#lines[@]}-1; i>=0; i-- )); do
+        [[ -z "${lines[$i]}" ]] && continue
+        IFS=$'\t' read -r name bin envfile args <<< "${lines[$i]}"
+        "$1" "${name}" "${bin}" "${envfile}" "${args}"
+    done
+}
+
 cmd_start() {
-    echo "[rc.hpe-mgmt] starting (stack=${STACK})"
-    while read -r name bin; do
-        [[ -n "${name:-}" ]] && start_one "${name}" "${bin}"
-    done < <(selected_daemons)
+    echo "[rc.hpe-mgmt] starting (stack=${STACK}, snmp_rev=${ENABLE_SNMP_REV})"
+    foreach_entry start_one
 }
 
 cmd_stop() {
     echo "[rc.hpe-mgmt] stopping"
-    # Stop in reverse order
-    local -a entries=()
-    mapfile -t entries < <(selected_daemons)
-    for (( i=${#entries[@]}-1; i>=0; i-- )); do
-        set -- ${entries[$i]}
-        stop_one "$1"
-    done
+    foreach_entry_reverse stop_one
+}
+
+print_status() {
+    local name="$1" bin="$2"
+    if [[ ! -x "${bin}" ]]; then
+        printf '  %-12s  not installed\n' "${name}"
+    elif ! bin_runnable "${bin}"; then
+        printf '  %-12s  installed but missing libs\n' "${name}"
+    elif is_running "${name}"; then
+        printf '  %-12s  running (pid %s)\n' "${name}" "$(cat "${PID_DIR}/${name}.pid")"
+    else
+        printf '  %-12s  stopped\n' "${name}"
+    fi
 }
 
 cmd_status() {
     echo "[rc.hpe-mgmt] status (stack=${STACK})"
-    while read -r name bin; do
-        [[ -z "${name:-}" ]] && continue
-        if [[ ! -x "${bin}" ]]; then
-            printf '  %-15s  not installed\n' "${name}"
-        elif is_running "${name}"; then
-            printf '  %-15s  running (pid %s)\n' "${name}" "$(cat "${PID_DIR}/${name}.pid")"
-        else
-            printf '  %-15s  stopped\n' "${name}"
-        fi
-    done < <(selected_daemons)
+    foreach_entry print_status
 }
 
 case "${1:-}" in
