@@ -1,0 +1,130 @@
+#!/bin/bash
+# /etc/rc.d/rc.hpe-mgmt -- sysv-ish service manager for HPE management
+# daemons on unRAID (no systemd).  Called from the plugin's install script
+# and from unRAID array event hooks.
+#
+#   rc.hpe-mgmt start        start services enabled by STACK
+#   rc.hpe-mgmt stop         stop everything we may have started
+#   rc.hpe-mgmt restart      stop + start
+#   rc.hpe-mgmt status       print a one-line status per daemon
+
+set -u
+
+PLUGIN_NAME="hpe-mgmt"
+CFG="/boot/config/plugins/${PLUGIN_NAME}/${PLUGIN_NAME}.cfg"
+PID_DIR="/var/run/${PLUGIN_NAME}"
+LOG_DIR="/var/log/${PLUGIN_NAME}"
+
+STACK="modern"
+[[ -f "${CFG}" ]] && . "${CFG}"
+
+mkdir -p "${PID_DIR}" "${LOG_DIR}"
+
+# Daemons we manage, in start order.
+# Each entry: "<name> <binary-path>".  Binaries only started if present.
+MODERN_DAEMONS=(
+    "amsd            /sbin/amsd"
+)
+
+LEGACY_DAEMONS=(
+    "cmathreshd      /sbin/cmathreshd"
+    "cmapeerd        /sbin/cmapeerd"
+    "cmahealthd      /sbin/cmahealthd"
+    "cmahostd        /sbin/cmahostd"
+    "cmaperfd        /sbin/cmaperfd"
+    "cmasm2d         /sbin/cmasm2d"
+    "cmaidad         /sbin/cmaidad"
+    "hpsmhd          /opt/hp/hpsmh/sbin/hpsmhd"
+)
+
+selected_daemons() {
+    case "${STACK}" in
+        modern) printf '%s\n' "${MODERN_DAEMONS[@]}" ;;
+        legacy) printf '%s\n' "${LEGACY_DAEMONS[@]}" ;;
+        both)   printf '%s\n' "${MODERN_DAEMONS[@]}" "${LEGACY_DAEMONS[@]}" ;;
+        *)      printf '%s\n' "${MODERN_DAEMONS[@]}" ;;
+    esac
+}
+
+is_running() {
+    local name="$1" pidfile="${PID_DIR}/${1}.pid"
+    [[ -s "${pidfile}" ]] || return 1
+    local pid; pid="$(cat "${pidfile}")"
+    [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null
+}
+
+start_one() {
+    local name="$1" bin="$2"
+    if [[ ! -x "${bin}" ]]; then
+        echo "  skip ${name} (not installed)"
+        return 0
+    fi
+    if is_running "${name}"; then
+        echo "  ok   ${name} already running"
+        return 0
+    fi
+    echo "  start ${name}"
+    # Launch detached, capture PID.  Daemons that self-daemonise will
+    # double-fork; we still record the initial child PID for tracking.
+    "${bin}" >>"${LOG_DIR}/${name}.log" 2>&1 &
+    echo $! >"${PID_DIR}/${name}.pid"
+    sleep 0.2
+    is_running "${name}" || echo "    WARN: ${name} did not stay up, see ${LOG_DIR}/${name}.log"
+}
+
+stop_one() {
+    local name="$1" pidfile="${PID_DIR}/${1}.pid"
+    if ! is_running "${name}"; then
+        rm -f "${pidfile}"
+        return 0
+    fi
+    local pid; pid="$(cat "${pidfile}")"
+    echo "  stop ${name} (pid ${pid})"
+    kill "${pid}" 2>/dev/null || true
+    for _ in 1 2 3 4 5; do
+        kill -0 "${pid}" 2>/dev/null || break
+        sleep 0.5
+    done
+    kill -0 "${pid}" 2>/dev/null && kill -9 "${pid}" 2>/dev/null || true
+    rm -f "${pidfile}"
+}
+
+cmd_start() {
+    echo "[rc.hpe-mgmt] starting (stack=${STACK})"
+    while read -r name bin; do
+        [[ -n "${name:-}" ]] && start_one "${name}" "${bin}"
+    done < <(selected_daemons)
+}
+
+cmd_stop() {
+    echo "[rc.hpe-mgmt] stopping"
+    # Stop in reverse order
+    local -a entries=()
+    mapfile -t entries < <(selected_daemons)
+    for (( i=${#entries[@]}-1; i>=0; i-- )); do
+        set -- ${entries[$i]}
+        stop_one "$1"
+    done
+}
+
+cmd_status() {
+    echo "[rc.hpe-mgmt] status (stack=${STACK})"
+    while read -r name bin; do
+        [[ -z "${name:-}" ]] && continue
+        if [[ ! -x "${bin}" ]]; then
+            printf '  %-15s  not installed\n' "${name}"
+        elif is_running "${name}"; then
+            printf '  %-15s  running (pid %s)\n' "${name}" "$(cat "${PID_DIR}/${name}.pid")"
+        else
+            printf '  %-15s  stopped\n' "${name}"
+        fi
+    done < <(selected_daemons)
+}
+
+case "${1:-}" in
+    start)   cmd_start ;;
+    stop)    cmd_stop ;;
+    restart) cmd_stop; cmd_start ;;
+    status)  cmd_status ;;
+    *) echo "usage: $0 {start|stop|restart|status}"; exit 2 ;;
+esac

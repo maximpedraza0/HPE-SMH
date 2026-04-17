@@ -1,0 +1,8 @@
+*.swp
+*.bak
+.DS_Store
+source/pkgs-cache/*.txz
+source/pkgs-cache/*.rpm
+/tmp-*/
+/build/
+/dist/

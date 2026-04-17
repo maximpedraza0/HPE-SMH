@@ -1,0 +1,19 @@
+# HPE Management plugin configuration
+# Lives at /boot/config/plugins/hpe-mgmt/hpe-mgmt.cfg (persists across reboots).
+
+# Which stack to install and run.
+#   modern  -> amsd + ssacli + hponcfg (recommended; feeds iLO)
+#   legacy  -> hpsmh + CMA daemons + :2381 web UI (deprecated by HPE ~2018)
+#   both    -> everything
+STACK="modern"
+
+# Optional extra packages (space-separated). See fetch-hpe.sh resolve_packages.
+#   ssaducli storcli hponcfg diag
+EXTRAS=""
+
+# HPE SDR distribution tree to pull from. Adjust if CentOS 8 current breaks.
+MCP_DIST="CentOS"
+MCP_VER="8"
+
+# Verify HPE GPG signature on every RPM (recommended).
+VERIFY_GPG="1"

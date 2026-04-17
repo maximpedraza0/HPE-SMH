@@ -1,0 +1,77 @@
+<?xml version='1.0' standalone='yes'?>
+<!DOCTYPE PLUGIN [
+<!ENTITY name      "hpe-mgmt">
+<!ENTITY author    "Max Pedraza">
+<!ENTITY version   "2026.04.18">
+<!ENTITY launch    "Settings/hpe-mgmt">
+<!ENTITY gitURL    "https://github.com/mpedraza/HPE-SMH">
+<!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
+<!ENTITY plugdir   "/usr/local/emhttp/plugins/&name;">
+<!ENTITY cfgdir    "/boot/config/plugins/&name;">
+<!ENTITY tarball   "&cfgdir;/tree.tar.gz">
+]>
+
+<PLUGIN
+  name="&name;"
+  author="&author;"
+  version="&version;"
+  launch="&launch;"
+  pluginURL="&pluginURL;"
+  support="&gitURL;/issues"
+  min="6.12.0">
+
+<CHANGES>
+### 2026.04.18
+- First skeleton: modern stack (amsd + ssacli + hponcfg) and legacy SMH selector.
+- Bundled Slackware rpm2targz; bootstraps rpm + popt from mirror on first run.
+- HPE SDR RPM download + GPG verification + rpm2tgz + installpkg pipeline.
+- Service manager rc.hpe-mgmt (start/stop/status/restart), no systemd.
+- Settings page under Settings/OtherSettings with stack + extras selector.
+</CHANGES>
+
+<!--
+  Download the plugin tree tarball from the git repo to the USB flash.
+  Using the git tarball keeps the .plg small and makes updates trivial
+  (bump &version; and users pull the matching tag).
+-->
+<FILE Name="&tarball;">
+  <URL>&gitURL;/archive/refs/heads/main.tar.gz</URL>
+</FILE>
+
+<!-- Unpack tree tarball into plugin runtime directory and run install.sh -->
+<FILE Run="/bin/bash">
+<INLINE>
+set -e
+PLUGIN_NAME="&name;"
+PLUGIN_DIR="&plugdir;"
+CFG_DIR="&cfgdir;"
+TARBALL="&tarball;"
+
+echo "[&name;] unpacking plugin tree"
+rm -rf "${PLUGIN_DIR}"
+mkdir -p "${PLUGIN_DIR}"
+# Git archive tarball contains a single top-level directory; strip it.
+tar -xzf "${TARBALL}" -C "${PLUGIN_DIR}" --strip-components=1
+
+echo "[&name;] running install pipeline"
+bash "${PLUGIN_DIR}/scripts/install.sh"
+
+echo "[&name;] ready — open Settings &#8594; HPE Management"
+</INLINE>
+</FILE>
+
+<!-- Uninstall -->
+<FILE Run="/bin/bash" Method="remove">
+<INLINE>
+PLUGIN_NAME="&name;"
+PLUGIN_DIR="&plugdir;"
+
+if [[ -x "${PLUGIN_DIR}/scripts/remove.sh" ]]; then
+    bash "${PLUGIN_DIR}/scripts/remove.sh"
+fi
+rm -rf "${PLUGIN_DIR}"
+echo "[&name;] removed (USB cache preserved; set PURGE_CACHE=1 to wipe)"
+</INLINE>
+</FILE>
+
+</PLUGIN>
