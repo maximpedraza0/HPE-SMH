@@ -7,21 +7,28 @@ set -euo pipefail
 
 PLUGIN_NAME="hpe-mgmt"
 CACHE_DIR="/boot/config/plugins/${PLUGIN_NAME}/pkgs"
-PLUGIN_DIR="/usr/local/emhttp/plugins/${PLUGIN_NAME}"
+# Resolve PLUGIN_DIR from the script location so this works both at runtime
+# (/usr/local/emhttp/plugins/hpe-mgmt/scripts/bootstrap-rpm.sh) and during
+# tests from an arbitrary checkout (/tmp/hpe-mgmt-test/scripts/...).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="${PLUGIN_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 
 SLACK_MIRROR="${SLACK_MIRROR:-https://slackware.uk/slackware}"
 SLACK_BRANCH="${SLACK_BRANCH:-slackware64-current}"
 
 RPM_PKG="rpm-6.0.1-x86_64-1.txz"
 POPT_PKG="popt-1.19-x86_64-1.txz"
+LUA_PKG="lua-5.4.8-x86_64-1.txz"    # rpm 6.x links against liblua.so.5
 
 log() { printf '[bootstrap-rpm] %s\n' "$*"; }
 die() { printf '[bootstrap-rpm] ERROR: %s\n' "$*" >&2; exit 1; }
 
 have_rpm_tools() {
-    command -v rpm >/dev/null 2>&1 \
+    # Must not only exist on PATH but actually run (catches missing libs).
+    command -v rpm       >/dev/null 2>&1 \
         && command -v rpm2cpio >/dev/null 2>&1 \
-        && command -v rpm2tgz >/dev/null 2>&1
+        && command -v rpm2tgz  >/dev/null 2>&1 \
+        && rpm --version       >/dev/null 2>&1
 }
 
 if have_rpm_tools; then
@@ -46,14 +53,22 @@ fetch_pkg() {
 }
 
 fetch_pkg "${POPT_PKG}" "l"
+fetch_pkg "${LUA_PKG}"  "d"
 fetch_pkg "${RPM_PKG}"  "ap"
 
 if ! command -v rpm >/dev/null 2>&1; then
     log "installing popt"
     installpkg --terse "${CACHE_DIR}/${POPT_PKG}"
+    log "installing lua"
+    installpkg --terse "${CACHE_DIR}/${LUA_PKG}"
     log "installing rpm"
     installpkg --terse "${CACHE_DIR}/${RPM_PKG}"
 fi
+
+# rpm can link against liblua.so.5 even when lua got installed after: run
+# ldconfig to ensure the new symlinks (liblua.so.5 -> liblua.so.5.4) are
+# picked up before we invoke rpm.
+ldconfig 2>/dev/null || true
 
 # rpm2targz ships with the plugin. Install as /usr/sbin/rpm2targz
 # and expose rpm2tgz / rpm2txz symlinks (what Slackware normally does).
