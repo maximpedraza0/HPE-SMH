@@ -11,7 +11,11 @@
 set -euo pipefail
 
 PLUGIN_NAME="hpe-mgmt"
-PLUGIN_DIR="/usr/local/emhttp/plugins/${PLUGIN_NAME}"
+# Derive PLUGIN_DIR from the script's own location so this works both at
+# runtime (/usr/local/emhttp/plugins/hpe-mgmt/scripts/install.sh) and when
+# run from an arbitrary checkout during tests.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="${PLUGIN_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 CFG_DIR="/boot/config/plugins/${PLUGIN_NAME}"
 
 log() { printf '[install] %s\n' "$*"; }

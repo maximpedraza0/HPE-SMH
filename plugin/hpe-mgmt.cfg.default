@@ -15,6 +15,12 @@ EXTRAS=""
 MCP_DIST="CentOS"
 MCP_VER="8"
 
+# Install the amsd daemon family (Tier 2).  These link against libraries
+# that unRAID does not ship (libsystemd, librpm.so.8, libjson-c.so.4); set
+# to 1 only once the compat-libs bundle is available. With this off you
+# still get ssacli + hponcfg (Tier 1), enough for Smart Array and iLO CLI.
+INSTALL_AMSD="0"
+
 # Verify HPE GPG signature on every RPM (recommended).
 VERIFY_GPG="1"
 
