@@ -36,6 +36,9 @@ bash "${PLUGIN_DIR}/scripts/hpilo-hook.sh" || log "hpilo-hook non-fatal failure"
 log "running bootstrap-rpm"
 bash "${PLUGIN_DIR}/scripts/bootstrap-rpm.sh"
 
+log "running bootstrap-gpg"
+bash "${PLUGIN_DIR}/scripts/bootstrap-gpg.sh"
+
 log "running fetch-hpe"
 bash "${PLUGIN_DIR}/scripts/fetch-hpe.sh"
 

@@ -23,6 +23,7 @@ PLUGIN_NAME="hpe-mgmt"
 CFG="/boot/config/plugins/${PLUGIN_NAME}/${PLUGIN_NAME}.cfg"
 CACHE_DIR="/boot/config/plugins/${PLUGIN_NAME}/packages"
 STATE_DIR="/boot/config/plugins/${PLUGIN_NAME}/state"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- defaults, overridden by CFG ---
 STACK="modern"
@@ -111,31 +112,46 @@ resolve_legacy_urls() {
 }
 
 # ---------------------------------------------------------------------------
-# Signature verification — currently a no-op (best effort only)
+# Signature verification — yum-style trust chain via repomd.xml
 # ---------------------------------------------------------------------------
+# verify-repo.sh refreshes the repo metadata once per run.  Its output is a
+# "<rpm-filename> <sha1>" map we load into an associative array; each RPM
+# we then download is sha1-checked against that map.  A missing entry or
+# mismatch is fatal.
+declare -A SHA1_MAP=()
+
+refresh_repo_sha1_map() {
+    [[ "${VERIFY_GPG}" == "1" ]] || return 0
+    log "refreshing repo metadata + signature"
+    local verifier="${SCRIPT_DIR:-$(dirname "${BASH_SOURCE[0]}")}/verify-repo.sh"
+    local tmp; tmp="$(mktemp)"
+    if ! bash "${verifier}" > "${tmp}"; then
+        rm -f "${tmp}"
+        die "verify-repo.sh failed; refusing to install anything"
+    fi
+    local fn sha
+    while read -r fn sha; do
+        [[ -n "${fn}" && -n "${sha}" ]] && SHA1_MAP["${fn}"]="${sha}"
+    done < "${tmp}"
+    rm -f "${tmp}"
+    log "trusted sha1 map: ${#SHA1_MAP[@]} packages"
+}
+
 verify_rpm() {
     local rpm="$1"
     [[ "${VERIFY_GPG}" == "1" ]] || return 0
-    # Our rpm-6.0.1 from Slackware -current is compiled without OpenPGP
-    # support, so `rpm --checksig` always fails with "RPM was compiled
-    # without OpenPGP support".  We detect that and emit a one-time
-    # warning instead of refusing every install; proper verification
-    # (yum repodata + sha256) is a separate work item.
-    local out
-    out="$(rpm --checksig "${rpm}" 2>&1 || true)"
-    if grep -q "without OpenPGP support" <<<"${out}"; then
-        [[ -z "${_GPG_WARNED:-}" ]] && {
-            warn "rpm lacks OpenPGP support — signatures NOT being verified"
-            warn "set VERIFY_GPG=0 to silence, or wait for repomd.xml-based verification"
-            _GPG_WARNED=1
-        }
-        return 0
+    local fn="${rpm##*/}"
+    local expected="${SHA1_MAP[${fn}]:-}"
+    if [[ -z "${expected}" ]]; then
+        warn "no sha1 for ${fn} in repo metadata — package not in repo?"
+        return 1
     fi
-    if grep -qiE '(pgp|signatures).*OK' <<<"${out}"; then
-        return 0
+    local actual; actual="$(sha1sum "${rpm}" | awk '{print $1}')"
+    if [[ "${actual}" != "${expected}" ]]; then
+        warn "sha1 mismatch for ${fn}: got ${actual}, expected ${expected}"
+        return 1
     fi
-    warn "signature check failed for ${rpm##*/}: ${out}"
-    return 1
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -182,6 +198,8 @@ install_one_rpm() {
 # ---------------------------------------------------------------------------
 main() {
     log "stack=${STACK} extras=[${EXTRAS}] mcp=${MCP_DIST}/${MCP_VER} amsd=${INSTALL_AMSD}"
+
+    refresh_repo_sha1_map
 
     mapfile -t URLS < <(resolve_packages "${STACK}" "${EXTRAS}")
     if [[ ${#URLS[@]} -eq 0 ]]; then
