@@ -149,9 +149,12 @@ for i in $* ; do
   # Extract the RPM:
   ofn=$TMPDIR/$(basename $i .rpm).cpio
   if which rpm2cpio 1> /dev/null 2> /dev/null ; then
-    rpm2cpio $i > $ofn 2> /dev/null
-    if [ ! $? = 0 ]; then
-      echo "ERROR:  rpm2cpio failed.  (maybe $i is not an RPM?)"
+    # hpe-mgmt patch: some HPE RPMs cause rpm2cpio (rpm 6.x) to exit 1 at
+    # end-of-payload while still writing a valid cpio stream. Trust the
+    # output file instead of the exit code — only abort if we got nothing.
+    rpm2cpio $i > $ofn 2> /dev/null || true
+    if [ ! -s $ofn ]; then
+      echo "ERROR:  rpm2cpio produced no output.  (maybe $i is not an RPM?)"
       rm -rf $TMPDIR
       continue
     fi
