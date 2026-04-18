@@ -1,21 +1,16 @@
 #!/bin/bash
-# Downloads HPE RPMs from the HPE SDR, converts them to Slackware .tgz
-# via rpm2tgz, and installs with installpkg.
+# Downloads HPE RPMs from the HPE SDR (MCP + SPP legacy), converts them to
+# Slackware .tgz via rpm2tgz, and installs with installpkg.
 #
 # Config keys consumed (from /boot/config/plugins/hpe-mgmt/hpe-mgmt.cfg):
 #   STACK        modern | legacy | both
 #   EXTRAS       space-separated list: ssaducli storcli hponcfg diag
 #   MCP_DIST     CentOS | Alma | OracleLinux       (default CentOS)
 #   MCP_VER      8 | 9 | current                   (default 8)
-#   INSTALL_AMSD 0 | 1   install the amsd daemon family.  Default 0
-#                because it links against libsystemd.so.0 / librpm.so.8,
-#                which unRAID doesn't ship — turning this on requires
-#                the compat-libs bundle (Tier 2, not yet implemented).
-#   VERIFY_GPG   0 | 1   verify signatures.  Currently best-effort only:
-#                the rpm shipped in Slackware -current is built without
-#                OpenPGP support, so rpm --checksig cannot verify HPE's
-#                signatures.  Proper verification (yum repomd.xml.asc +
-#                sha256 against primary.xml) is tracked separately.
+#   SPP_LEGACY_VER  last SPP that still shipped SMH — default 2022.03.0
+#                   (2022.08+ dropped SMH entirely)
+#   INSTALL_AMSD 0 | 1   install the amsd daemon family.  Default 0.
+#   VERIFY_GPG   0 | 1   verify metadata signature + per-RPM sha1.
 
 set -euo pipefail
 
@@ -30,6 +25,7 @@ STACK="modern"
 EXTRAS=""
 MCP_DIST="CentOS"
 MCP_VER="8"
+SPP_LEGACY_VER="2022.03.0"
 INSTALL_AMSD="0"
 VERIFY_GPG="1"
 
@@ -41,91 +37,100 @@ log()  { printf '[fetch-hpe] %s\n' "$*"; }
 warn() { printf '[fetch-hpe] WARN: %s\n' "$*" >&2; }
 die()  { printf '[fetch-hpe] ERROR: %s\n' "$*" >&2; exit 1; }
 
-HPE_SDR="https://downloads.linux.hpe.com/SDR/repo/mcp/${MCP_DIST}/${MCP_VER}/x86_64/current"
+HPE_SDR_MCP="https://downloads.linux.hpe.com/SDR/repo/mcp/${MCP_DIST}/${MCP_VER}/x86_64/current"
+HPE_SDR_SPP="https://downloads.linux.hpe.com/SDR/repo/spp/RedHat/8/x86_64/${SPP_LEGACY_VER}"
 
 # ---------------------------------------------------------------------------
 # Package resolution
 # ---------------------------------------------------------------------------
-# Tier 1 CLI tools: self-contained, link only against standard libraries
-# available on unRAID (libstdc++, libpthread, libm, libdl).  Verified working
-# on unRAID 7.2.3 / kernel 6.12.54.
+# Tier 1 CLI tools: self-contained, standard libs only.  Verified on
+# unRAID 7.2.3 / kernel 6.12.54.
 TIER1_MODERN=(ssacli hponcfg)
 
 # Tier 2 daemons (amsd family): need compat libs (librpm.so.8, libjson-c.so.4,
-# libsystemd.so.0) that unRAID does not ship.  Currently opt-in via
-# INSTALL_AMSD=1, and will only actually start if the compat-libs bundle
-# is in place.  rc.hpe-mgmt reports missing libs per daemon.
+# libsystemd.so.0) that unRAID does not ship.  Opt-in via INSTALL_AMSD=1.
 TIER2_MODERN=(amsd)
 
+# Legacy SMH stack (SPP/RedHat/8/2022.03.0 is the last SPP that shipped SMH).
+# These are known to work on EL8-based hosts; unRAID compat still TBD.
+LEGACY_PKGS=(hpsmh hp-smh-templates hp-health hp-snmp-agents hp-ams)
+
+# resolve_packages emits one "<repo_base> <pkgname>" pair per line, to be
+# resolved by resolve_latest_rpm into concrete <base>/<fn>.rpm URLs.
 resolve_packages() {
     local stack="$1" extras="$2"
-    local -a pkgs=()
 
     case "${stack}" in
         modern|both)
-            pkgs+=("${TIER1_MODERN[@]}")
-            [[ "${INSTALL_AMSD}" == "1" ]] && pkgs+=("${TIER2_MODERN[@]}")
+            for p in "${TIER1_MODERN[@]}"; do echo "${HPE_SDR_MCP} ${p}"; done
+            if [[ "${INSTALL_AMSD}" == "1" ]]; then
+                for p in "${TIER2_MODERN[@]}"; do echo "${HPE_SDR_MCP} ${p}"; done
+            fi
             ;;
     esac
 
     case "${stack}" in
         legacy|both)
-            resolve_legacy_urls
+            for p in "${LEGACY_PKGS[@]}"; do echo "${HPE_SDR_SPP} ${p}"; done
             ;;
     esac
 
     for e in ${extras}; do
         case "${e}" in
-            ssaducli|storcli|hponcfg) pkgs+=("${e}") ;;
-            diag)    warn "HPE Offline Diagnostics is ISO-based; skipping" ;;
-            *)       warn "unknown extra: ${e}" ;;
+            ssaducli|storcli|hponcfg) echo "${HPE_SDR_MCP} ${e}" ;;
+            diag) warn "HPE Offline Diagnostics is ISO-based; skipping" ;;
+            *)    warn "unknown extra: ${e}" ;;
         esac
-    done
-
-    # Deduplicate in case hponcfg is listed both in Tier 1 and extras.
-    local -A seen=()
-    for p in "${pkgs[@]}"; do
-        [[ -n "${seen[$p]:-}" ]] && continue
-        seen[$p]=1
-        resolve_latest_rpm "${HPE_SDR}/${p}"
     done
 }
 
-# Turn ".../current/<pkgname>" into the newest <pkgname>-*.rpm URL.
+# resolve_latest_rpm <base_url> <pkgname>
+# Returns the newest <pkgname>-*.rpm URL under <base_url>.
 resolve_latest_rpm() {
-    local prefix="$1"
-    local dir pkgname latest
-    dir="${prefix%/*}"
-    pkgname="${prefix##*/}"
-    latest="$(curl --fail --silent --location "${dir}/" \
+    local base="$1" pkgname="$2"
+    local latest
+    latest="$(curl --fail --silent --location "${base}/" \
         | grep -oE "href=\"${pkgname}-[0-9][^\"]+\\.rpm\"" \
         | sed -E 's/^href="//; s/"$//' \
         | sort -V | tail -1)"
-    [[ -n "${latest}" ]] || { warn "no RPM found for ${pkgname}"; return; }
-    echo "${dir}/${latest}"
+    [[ -n "${latest}" ]] || { warn "no RPM found for ${pkgname} in ${base}"; return; }
+    echo "${base}/${latest}"
 }
 
-resolve_legacy_urls() {
-    # TODO: SMH 7.6.x lives on HPE's per-product download pages, not the SDR.
-    # Will add a static URL map here once the exact files are validated.
-    warn "legacy SMH URL map not yet implemented"
+# Dedup + resolve.  Emits one RPM URL per line.
+resolve_urls() {
+    local stack="$1" extras="$2"
+    local -A seen=()
+    while read -r base pkg; do
+        [[ -z "${base:-}" || -z "${pkg:-}" ]] && continue
+        local key="${base}|${pkg}"
+        [[ -n "${seen[$key]:-}" ]] && continue
+        seen[$key]=1
+        resolve_latest_rpm "${base}" "${pkg}"
+    done < <(resolve_packages "${stack}" "${extras}")
 }
 
 # ---------------------------------------------------------------------------
 # Signature verification — yum-style trust chain via repomd.xml
 # ---------------------------------------------------------------------------
-# verify-repo.sh refreshes the repo metadata once per run.  Its output is a
-# "<rpm-filename> <sha1>" map we load into an associative array; each RPM
-# we then download is sha1-checked against that map.  A missing entry or
-# mismatch is fatal.
 declare -A SHA1_MAP=()
+
+# Which repo(s) do we need to verify, given the current stack?  Keep the
+# set minimal so we don't pay network cost for repos we aren't using.
+repos_for_stack() {
+    case "${STACK}" in
+        modern) echo "${HPE_SDR_MCP}" ;;
+        legacy) echo "${HPE_SDR_SPP}" ;;
+        both)   echo "${HPE_SDR_MCP}"; echo "${HPE_SDR_SPP}" ;;
+    esac
+}
 
 refresh_repo_sha1_map() {
     [[ "${VERIFY_GPG}" == "1" ]] || return 0
-    log "refreshing repo metadata + signature"
-    local verifier="${SCRIPT_DIR:-$(dirname "${BASH_SOURCE[0]}")}/verify-repo.sh"
+    log "refreshing repo metadata + signatures"
+    local verifier="${SCRIPT_DIR}/verify-repo.sh"
     local tmp; tmp="$(mktemp)"
-    if ! bash "${verifier}" > "${tmp}"; then
+    if ! repos_for_stack | bash "${verifier}" > "${tmp}"; then
         rm -f "${tmp}"
         die "verify-repo.sh failed; refusing to install anything"
     fi
@@ -143,7 +148,7 @@ verify_rpm() {
     local fn="${rpm##*/}"
     local expected="${SHA1_MAP[${fn}]:-}"
     if [[ -z "${expected}" ]]; then
-        warn "no sha1 for ${fn} in repo metadata — package not in repo?"
+        warn "no sha1 for ${fn} in repo metadata"
         return 1
     fi
     local actual; actual="$(sha1sum "${rpm}" | awk '{print $1}')"
@@ -180,9 +185,6 @@ install_one_rpm() {
 
     if [[ ! -s "${txz}" ]]; then
         log "convert ${fn}"
-        # rpm2tgz writes the output .tgz to whatever $(pwd) was when the
-        # script was invoked, NOT next to the input file.  cd into the
-        # cache dir so the output lands where install_one_rpm expects it.
         ( cd "${CACHE_DIR}" && rpm2tgz "${cached}" ) >/dev/null 2>&1 \
             || { warn "rpm2tgz failed for ${fn}"; return 1; }
     fi
@@ -197,11 +199,11 @@ install_one_rpm() {
 # Entry point
 # ---------------------------------------------------------------------------
 main() {
-    log "stack=${STACK} extras=[${EXTRAS}] mcp=${MCP_DIST}/${MCP_VER} amsd=${INSTALL_AMSD}"
+    log "stack=${STACK} extras=[${EXTRAS}] mcp=${MCP_DIST}/${MCP_VER} spp=${SPP_LEGACY_VER} amsd=${INSTALL_AMSD}"
 
     refresh_repo_sha1_map
 
-    mapfile -t URLS < <(resolve_packages "${STACK}" "${EXTRAS}")
+    mapfile -t URLS < <(resolve_urls "${STACK}" "${EXTRAS}")
     if [[ ${#URLS[@]} -eq 0 ]]; then
         warn "no packages resolved"
         return 0

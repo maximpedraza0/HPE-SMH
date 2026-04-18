@@ -15,6 +15,10 @@ EXTRAS=""
 MCP_DIST="CentOS"
 MCP_VER="8"
 
+# Last SPP release that still shipped SMH.  2022.03.0 is the newest; 2022.08+
+# dropped SMH entirely.  Only consulted when STACK=legacy or STACK=both.
+SPP_LEGACY_VER="2022.03.0"
+
 # Install the amsd daemon family (Tier 2).  These link against libraries
 # that unRAID does not ship (libsystemd, librpm.so.8, libjson-c.so.4); set
 # to 1 only once the compat-libs bundle is available. With this off you
