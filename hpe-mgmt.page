@@ -69,28 +69,33 @@ Extra packages:
 SNMP bridge daemons (`*_rev`):
 : <label><input type="checkbox" name="ENABLE_SNMP_REV" value="1" <?=chk($snmp_rev==='1')?>> Start the *_rev variants (only useful if snmpd runs on the host)</label>
 
-HPE SDR (Modern source):
-: distribution
-  <select name="MCP_DIST">
-    <?php foreach (['CentOS','Alma','OracleLinux'] as $d): ?>
-      <option <?=sel($d === $mcp_dist)?>><?=$d?></option>
-    <?php endforeach; ?>
-  </select>
-  version
-  <select name="MCP_VER">
-    <?php foreach (['7','8','9','current'] as $v): ?>
-      <option <?=sel($v === $mcp_ver)?>><?=$v?></option>
-    <?php endforeach; ?>
-  </select>
-
-HPE SPP (Legacy SMH source):
-: version
-  <select name="SPP_LEGACY_VER">
-    <?php foreach (['2019.03.0','2020.03.0','2021.05.0','2022.03.0'] as $v): ?>
-      <option <?=sel($v === $spp_ver)?>><?=$v?></option>
-    <?php endforeach; ?>
-  </select>
-  (2022.03.0 is the last SPP that shipped hpsmh; 2022.08+ dropped it.)
+Package sources:
+: <details>
+    <summary>Advanced &mdash; change repository tags (defaults are verified to work)</summary>
+    <p>HPE SDR (Modern source):
+      distribution
+      <select name="MCP_DIST">
+        <?php foreach (['CentOS','Alma','OracleLinux'] as $d): ?>
+          <option <?=sel($d === $mcp_dist)?>><?=$d?></option>
+        <?php endforeach; ?>
+      </select>
+      version
+      <select name="MCP_VER">
+        <?php foreach (['7','8','9','current'] as $v): ?>
+          <option <?=sel($v === $mcp_ver)?>><?=$v?></option>
+        <?php endforeach; ?>
+      </select>
+    </p>
+    <p>HPE SPP (Legacy SMH source):
+      version
+      <select name="SPP_LEGACY_VER">
+        <?php foreach (['2019.03.0','2020.03.0','2021.05.0','2022.03.0'] as $v): ?>
+          <option <?=sel($v === $spp_ver)?>><?=$v?></option>
+        <?php endforeach; ?>
+      </select>
+      (2022.03.0 is the last SPP that shipped hpsmh; 2022.08+ dropped it.)
+    </p>
+  </details>
 
 Verify GPG signatures + per-RPM hash:
 : <label><input type="checkbox" name="VERIFY_GPG" value="1" <?=chk($gpg==='1')?>> Enabled (strongly recommended &mdash; off falls back to HTTPS-only trust)</label>
