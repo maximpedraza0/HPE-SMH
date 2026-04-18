@@ -40,6 +40,15 @@ die()  { printf '[fetch-hpe] ERROR: %s\n' "$*" >&2; exit 1; }
 HPE_SDR_MCP="https://downloads.linux.hpe.com/SDR/repo/mcp/${MCP_DIST}/${MCP_VER}/x86_64/current"
 HPE_SDR_SPP="https://downloads.linux.hpe.com/SDR/repo/spp/RedHat/8/x86_64/${SPP_LEGACY_VER}"
 
+# AlmaLinux 8 serves as our compat-lib source.  HPE's EL8-built RPMs
+# (hp-ams, hp-snmp-agents, hpsmhd, amsd...) link against libs that
+# ship in AlmaLinux 8 and NOT in Slackware/unRAID (libsystemd.so.0,
+# librpm.so.8, libidn.so.11, libnetsnmp.so.35, libcrypto.so.1.1,
+# libjson-c.so.4).  Soname-isolated — they coexist with unRAID's
+# native libs.  Same repomd+sha1 trust chain as for HPE.
+ALMA_BASEOS="https://repo.almalinux.org/almalinux/8/BaseOS/x86_64/os"
+ALMA_APPSTREAM="https://repo.almalinux.org/almalinux/8/AppStream/x86_64/os"
+
 # ---------------------------------------------------------------------------
 # Package resolution
 # ---------------------------------------------------------------------------
@@ -54,6 +63,16 @@ TIER2_MODERN=(amsd)
 # Legacy SMH stack (SPP/RedHat/8/2022.03.0 is the last SPP that shipped SMH).
 # These are known to work on EL8-based hosts; unRAID compat still TBD.
 LEGACY_PKGS=(hpsmh hp-smh-templates hp-health hp-snmp-agents hp-ams)
+
+# Compat libs from AlmaLinux 8.  Required whenever we install anything that
+# wasn't built against Slackware — i.e. legacy SMH or the Tier 2 amsd family.
+# Transitive deps are inherited: rpm-libs-4.14 pulls in libaudit/libdb/liblua
+# from EL8 because those are what the EL8 rpm links against.
+COMPAT_PKGS_BASEOS=(
+    net-snmp-libs openssl-libs rpm-libs systemd-libs json-c
+    audit-libs libdb lua-libs
+)
+COMPAT_PKGS_APPSTREAM=(libidn)
 
 # resolve_packages emits one "<repo_base> <pkgname>" pair per line, to be
 # resolved by resolve_latest_rpm into concrete <base>/<fn>.rpm URLs.
@@ -75,6 +94,12 @@ resolve_packages() {
             ;;
     esac
 
+    # Compat libs: needed if we install anything that expects EL8 userspace.
+    if need_compat_libs; then
+        for p in "${COMPAT_PKGS_BASEOS[@]}";    do echo "${ALMA_BASEOS} ${p}"; done
+        for p in "${COMPAT_PKGS_APPSTREAM[@]}"; do echo "${ALMA_APPSTREAM} ${p}"; done
+    fi
+
     for e in ${extras}; do
         case "${e}" in
             ssaducli|storcli|hponcfg) echo "${HPE_SDR_MCP} ${e}" ;;
@@ -84,17 +109,35 @@ resolve_packages() {
     done
 }
 
+need_compat_libs() {
+    case "${STACK}" in
+        legacy|both) return 0 ;;
+    esac
+    [[ "${INSTALL_AMSD}" == "1" ]] && return 0
+    return 1
+}
+
 # resolve_latest_rpm <base_url> <pkgname>
-# Returns the newest <pkgname>-*.rpm URL under <base_url>.
+# Returns the newest <pkgname>-*.rpm URL that lives under <base_url>,
+# using URL_MAP (populated from verify-repo.sh output).  No HTTP scrape:
+# every RPM we'd consider installing is already in the trusted map.
 resolve_latest_rpm() {
     local base="$1" pkgname="$2"
-    local latest
-    latest="$(curl --fail --silent --location "${base}/" \
-        | grep -oE "href=\"${pkgname}-[0-9][^\"]+\\.rpm\"" \
-        | sed -E 's/^href="//; s/"$//' \
-        | sort -V | tail -1)"
-    [[ -n "${latest}" ]] || { warn "no RPM found for ${pkgname} in ${base}"; return; }
-    echo "${base}/${latest}"
+    local fn url
+    local -a candidates=()
+    for fn in "${!URL_MAP[@]}"; do
+        url="${URL_MAP[$fn]}"
+        [[ "${url}" == "${base}/"* ]] || continue
+        [[ "${fn}" =~ ^${pkgname}-[0-9] ]] || continue
+        [[ "${fn}" == *.rpm ]] || continue
+        candidates+=("${fn}")
+    done
+    if [[ ${#candidates[@]} -eq 0 ]]; then
+        warn "no RPM found for ${pkgname} in ${base}"
+        return
+    fi
+    local latest; latest="$(printf '%s\n' "${candidates[@]}" | sort -V | tail -1)"
+    echo "${URL_MAP[$latest]}"
 }
 
 # Dedup + resolve.  Emits one RPM URL per line.
@@ -113,7 +156,15 @@ resolve_urls() {
 # ---------------------------------------------------------------------------
 # Signature verification — yum-style trust chain via repomd.xml
 # ---------------------------------------------------------------------------
-declare -A SHA1_MAP=()
+# verify-repo.sh emits "<full-url> <checksum-type> <checksum>" per line.
+# We build two filename-keyed maps from it:
+#   URL_MAP["<fn>"]      = full URL to the RPM
+#   CHECKSUM_MAP["<fn>"] = "<type>:<hash>"
+# PKGS_BY_BASE[<base>][<fn>] would be ideal for disambiguation, but bash
+# does not support nested assoc arrays.  We store the URL in URL_MAP and
+# rely on resolve_latest_rpm filtering by URL prefix (base).
+declare -A CHECKSUM_MAP=()
+declare -A URL_MAP=()
 
 # Which repo(s) do we need to verify, given the current stack?  Keep the
 # set minimal so we don't pay network cost for repos we aren't using.
@@ -123,9 +174,13 @@ repos_for_stack() {
         legacy) echo "${HPE_SDR_SPP}" ;;
         both)   echo "${HPE_SDR_MCP}"; echo "${HPE_SDR_SPP}" ;;
     esac
+    if need_compat_libs; then
+        echo "${ALMA_BASEOS}"
+        echo "${ALMA_APPSTREAM}"
+    fi
 }
 
-refresh_repo_sha1_map() {
+refresh_checksum_map() {
     [[ "${VERIFY_GPG}" == "1" ]] || return 0
     log "refreshing repo metadata + signatures"
     local verifier="${SCRIPT_DIR}/verify-repo.sh"
@@ -134,26 +189,38 @@ refresh_repo_sha1_map() {
         rm -f "${tmp}"
         die "verify-repo.sh failed; refusing to install anything"
     fi
-    local fn sha
-    while read -r fn sha; do
-        [[ -n "${fn}" && -n "${sha}" ]] && SHA1_MAP["${fn}"]="${sha}"
+    local url type hash fn
+    while read -r url type hash; do
+        [[ -n "${url}" && -n "${type}" && -n "${hash}" ]] || continue
+        fn="${url##*/}"
+        URL_MAP["${fn}"]="${url}"
+        CHECKSUM_MAP["${fn}"]="${type}:${hash}"
     done < "${tmp}"
     rm -f "${tmp}"
-    log "trusted sha1 map: ${#SHA1_MAP[@]} packages"
+    log "trusted checksum map: ${#CHECKSUM_MAP[@]} packages"
 }
 
 verify_rpm() {
     local rpm="$1"
     [[ "${VERIFY_GPG}" == "1" ]] || return 0
     local fn="${rpm##*/}"
-    local expected="${SHA1_MAP[${fn}]:-}"
-    if [[ -z "${expected}" ]]; then
-        warn "no sha1 for ${fn} in repo metadata"
+    local entry="${CHECKSUM_MAP[${fn}]:-}"
+    if [[ -z "${entry}" ]]; then
+        warn "no checksum for ${fn} in repo metadata"
         return 1
     fi
-    local actual; actual="$(sha1sum "${rpm}" | awk '{print $1}')"
+    local type="${entry%%:*}"
+    local expected="${entry#*:}"
+    local tool
+    case "${type}" in
+        sha|sha1) tool=sha1sum ;;
+        sha256)   tool=sha256sum ;;
+        sha512)   tool=sha512sum ;;
+        *) warn "unsupported checksum type for ${fn}: ${type}"; return 1 ;;
+    esac
+    local actual; actual="$(${tool} "${rpm}" | awk '{print $1}')"
     if [[ "${actual}" != "${expected}" ]]; then
-        warn "sha1 mismatch for ${fn}: got ${actual}, expected ${expected}"
+        warn "${type} mismatch for ${fn}: got ${actual}, expected ${expected}"
         return 1
     fi
     return 0
@@ -201,7 +268,7 @@ install_one_rpm() {
 main() {
     log "stack=${STACK} extras=[${EXTRAS}] mcp=${MCP_DIST}/${MCP_VER} spp=${SPP_LEGACY_VER} amsd=${INSTALL_AMSD}"
 
-    refresh_repo_sha1_map
+    refresh_checksum_map
 
     mapfile -t URLS < <(resolve_urls "${STACK}" "${EXTRAS}")
     if [[ ${#URLS[@]} -eq 0 ]]; then
@@ -217,6 +284,12 @@ main() {
     if (( failed > 0 )); then
         die "${failed} package(s) failed"
     fi
+
+    # Refresh the shared-library cache so the newly-installed compat libs
+    # (libidn, libsystemd, librpm, libnetsnmp, etc.) become discoverable
+    # before we try to start any daemon.
+    ldconfig 2>/dev/null || true
+
     log "done (${#URLS[@]} package(s))"
 }
 

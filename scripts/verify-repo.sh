@@ -78,17 +78,28 @@ process_repo() {
     local stamp_file="${slug_dir}/.stamp.${repomd_sha1}"
 
     if [[ -s "${map_file}" && -f "${stamp_file}" ]]; then
-        log "[${slug}] sha1-map cached (${repomd_sha1:0:12}...)"
+        log "[${slug}] checksum-map cached (${repomd_sha1:0:12}...)"
         cat "${map_file}"
         return 0
     fi
 
-    # --- pull primary.xml.gz, verify sha1 ---
-    local primary_href primary_sha1
+    # --- resolve primary.xml entry (any checksum type) ---
+    local primary_href primary_ck_type primary_ck_value
     primary_href="$(xmllint --xpath 'string(//*[local-name()="data"][@type="primary"]/*[local-name()="location"]/@href)' "${repomd}")"
-    primary_sha1="$(xmllint --xpath 'string(//*[local-name()="data"][@type="primary"]/*[local-name()="checksum"][@type="sha"])' "${repomd}")"
-    [[ -n "${primary_href}" && -n "${primary_sha1}" ]] \
+    primary_ck_type="$(xmllint --xpath 'string(//*[local-name()="data"][@type="primary"]/*[local-name()="checksum"]/@type)' "${repomd}")"
+    primary_ck_value="$(xmllint --xpath 'string(//*[local-name()="data"][@type="primary"]/*[local-name()="checksum"])' "${repomd}")"
+    [[ -n "${primary_href}" && -n "${primary_ck_value}" ]] \
         || die "[${slug}] could not extract primary.xml entry"
+
+    # Map repomd checksum-type to a coreutils tool.  HPE uses "sha" (SHA-1),
+    # AlmaLinux uses "sha256".  Any other type is unexpected.
+    local hash_tool
+    case "${primary_ck_type}" in
+        sha|sha1)    hash_tool=sha1sum ;;
+        sha256)      hash_tool=sha256sum ;;
+        sha512)      hash_tool=sha512sum ;;
+        *) die "[${slug}] unsupported checksum type: ${primary_ck_type}" ;;
+    esac
 
     local primary_gz="${slug_dir}/$(basename "${primary_href}")"
     log "[${slug}] fetching $(basename "${primary_href}")"
@@ -96,25 +107,30 @@ process_repo() {
         -o "${primary_gz}" "${base_url}/${primary_href}" \
         || die "[${slug}] primary.xml.gz download failed"
 
-    local actual_sha1; actual_sha1="$(sha1sum "${primary_gz}" | awk '{print $1}')"
-    [[ "${actual_sha1}" == "${primary_sha1}" ]] \
-        || die "[${slug}] primary.xml.gz sha1 mismatch: got ${actual_sha1}, expected ${primary_sha1}"
-    log "[${slug}] primary.xml.gz OK (${actual_sha1:0:12}...)"
+    local actual; actual="$(${hash_tool} "${primary_gz}" | awk '{print $1}')"
+    [[ "${actual}" == "${primary_ck_value}" ]] \
+        || die "[${slug}] primary.xml.gz ${primary_ck_type} mismatch: got ${actual}, expected ${primary_ck_value}"
+    log "[${slug}] primary.xml.gz OK (${primary_ck_type} ${actual:0:12}...)"
 
     local primary_xml="${primary_gz%.gz}"
     zcat "${primary_gz}" > "${primary_xml}"
 
-    # Awk-parse primary.xml (see original implementation for rationale).
-    awk '
-        /<package / { loc=""; sha=""; inpkg=1 }
-        inpkg && /<checksum type="sha" pkgid="YES">/ {
-            if (match($0, />[a-f0-9]+</)) sha = substr($0, RSTART+1, RLENGTH-2)
+    # Awk-parse primary.xml.  We output the full URL of each package (base
+    # url + <location href>) so downstream doesn't need to know the
+    # per-repo on-disk layout (HPE SDR is flat, AlmaLinux uses Packages/).
+    # Output columns:
+    #   <full-rpm-url>  <checksum-type>  <checksum-value>
+    awk -v base="${base_url}" '
+        /<package / { loc=""; ck=""; ck_type=""; inpkg=1 }
+        inpkg && /<checksum [^>]*pkgid="YES"/ {
+            if (match($0, /type="[^"]+"/)) ck_type = substr($0, RSTART+6, RLENGTH-7)
+            if (match($0, />[a-f0-9]+</)) ck = substr($0, RSTART+1, RLENGTH-2)
         }
         inpkg && /<location href=/ {
             if (match($0, /href="[^"]+"/)) loc = substr($0, RSTART+6, RLENGTH-7)
         }
         /<\/package>/ && inpkg {
-            if (loc && sha) print loc, sha
+            if (loc && ck && ck_type) print base "/" loc, ck_type, ck
             inpkg=0
         }
     ' "${primary_xml}" > "${map_file}.new" \
@@ -125,7 +141,7 @@ process_repo() {
     mv "${map_file}.new" "${map_file}"
     : > "${stamp_file}"
 
-    log "[${slug}] sha1-map built: $(wc -l < "${map_file}") entries"
+    log "[${slug}] checksum-map built: $(wc -l < "${map_file}") entries"
     cat "${map_file}"
 }
 

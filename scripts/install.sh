@@ -88,6 +88,71 @@ if ! getent passwd hpsmh >/dev/null 2>&1; then
     useradd -r -g hpsmh -s /sbin/nologin -d /opt/hp/hpsmh hpsmh 2>/dev/null || true
 fi
 
+# Seed /opt/hp/hpsmh/conf/smhpd.xml with the same defaults the vendor %post
+# would have written.  Without this file hpsmhd refuses to start.
+if [[ -d /opt/hp/hpsmh/conf && ! -f /opt/hp/hpsmh/conf/smhpd.xml ]]; then
+    log "fixup: seeding /opt/hp/hpsmh/conf/smhpd.xml with defaults"
+    cat > /opt/hp/hpsmh/conf/smhpd.xml <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<system-management-homepage>
+  <admin-group></admin-group>
+  <operator-group></operator-group>
+  <user-group></user-group>
+  <allow-default-os-admin>true</allow-default-os-admin>
+  <anonymous-access>false</anonymous-access>
+  <localaccess-enabled>false</localaccess-enabled>
+  <localaccess-type>Anonymous</localaccess-type>
+  <trustmode>TrustByCert</trustmode>
+  <xenamelist></xenamelist>
+  <ip-binding>false</ip-binding>
+  <ip-binding-list></ip-binding-list>
+  <ip-restricted-logins>false</ip-restricted-logins>
+  <ip-restricted-include></ip-restricted-include>
+  <ip-restricted-exclude></ip-restricted-exclude>
+  <autostart>false</autostart>
+  <timeoutsmh>30</timeoutsmh>
+  <port2301>true</port2301>
+  <iconview>false</iconview>
+  <box-order>status</box-order>
+  <box-item-order>status</box-item-order>
+  <session-timeout>15</session-timeout>
+  <ui-timeout>120</ui-timeout>
+  <httpd-error-log>false</httpd-error-log>
+  <multihomed></multihomed>
+  <rotate-logs-size>5</rotate-logs-size>
+</system-management-homepage>
+XML
+    chown hpsmh:hpsmh /opt/hp/hpsmh/conf/smhpd.xml 2>/dev/null || true
+    chmod 660      /opt/hp/hpsmh/conf/smhpd.xml 2>/dev/null || true
+fi
+
+# hpsmhd logs under /var/spool/opt/hp/hpsmh (vendor %post creates the tree).
+if [[ -d /opt/hp/hpsmh && ! -d /var/spool/opt/hp/hpsmh/logs ]]; then
+    log "fixup: creating /var/spool/opt/hp/hpsmh/{logs,run}"
+    mkdir -p /var/spool/opt/hp/hpsmh/logs /var/spool/opt/hp/hpsmh/run
+    chown -R root:hpsmh /var/spool/opt 2>/dev/null || true
+    chmod -R 750        /var/spool/opt 2>/dev/null || true
+fi
+
+# PAM stack the init script loads for web authentication.
+if [[ -f /opt/hp/hpsmh/support/sysmgthp.redhat && ! -f /etc/pam.d/sysmgthp ]]; then
+    log "fixup: /etc/pam.d/sysmgthp"
+    mkdir -p /etc/pam.d
+    install -m 0644 /opt/hp/hpsmh/support/sysmgthp.redhat /etc/pam.d/sysmgthp
+fi
+
+# The hpsmhd init script trusts its own pid file over process liveness —
+# a stale httpd.pid (e.g. from a crashed prior attempt) makes it report
+# "already running" and skip start.  Clean stale PIDs idempotently.
+for pidfile in /opt/hp/hpsmh/logs/httpd.pid /var/run/hp-ams.pid; do
+    [[ -f "${pidfile}" ]] || continue
+    pid="$(cat "${pidfile}" 2>/dev/null)"
+    if [[ -n "${pid}" ]] && ! kill -0 "${pid}" 2>/dev/null; then
+        log "fixup: removing stale ${pidfile}"
+        rm -f "${pidfile}"
+    fi
+done
+
 log "installing rc.hpe-mgmt"
 install -m 0755 "${PLUGIN_DIR}/scripts/rc.hpe-mgmt" "/etc/rc.d/rc.${PLUGIN_NAME}"
 
