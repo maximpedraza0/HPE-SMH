@@ -25,7 +25,7 @@ log() { printf '[install] %s\n' "$*"; }
 
 # Stamp default config if absent.
 if [[ ! -f "${CFG_DIR}/${PLUGIN_NAME}.cfg" ]]; then
-    install -m 0644 "${PLUGIN_DIR}/plugin/${PLUGIN_NAME}.cfg.default" \
+    install -m 0644 "${PLUGIN_DIR}/${PLUGIN_NAME}.cfg.default" \
                      "${CFG_DIR}/${PLUGIN_NAME}.cfg"
     log "wrote default config"
 fi

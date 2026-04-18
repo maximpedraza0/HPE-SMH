@@ -1,0 +1,120 @@
+Menu="OtherSettings"
+Title="HPE Management"
+Icon="server"
+Tag="icon-hpe-mgmt"
+---
+<?PHP
+/* HPE Management — unRAID settings page.
+ * Config persists at /boot/config/plugins/hpe-mgmt/hpe-mgmt.cfg.
+ * Save handler lives in include/settings.php.
+ */
+
+$plugin   = "hpe-mgmt";
+$plugdir  = "/usr/local/emhttp/plugins/$plugin";
+$cfg_path = "/boot/config/plugins/$plugin/$plugin.cfg";
+require_once "$plugdir/include/cfg.php";
+$defaults = hpe_mgmt_read_cfg("$plugdir/$plugin.cfg.default");
+$current  = file_exists($cfg_path) ? hpe_mgmt_read_cfg($cfg_path) : $defaults;
+
+$stack        = $current['STACK']           ?? 'modern';
+$extras       = $current['EXTRAS']          ?? '';
+$mcp_dist     = $current['MCP_DIST']        ?? 'CentOS';
+$mcp_ver      = $current['MCP_VER']         ?? '8';
+$spp_ver      = $current['SPP_LEGACY_VER']  ?? '2022.03.0';
+$install_amsd = $current['INSTALL_AMSD']    ?? '0';
+$snmp_rev     = $current['ENABLE_SNMP_REV'] ?? '0';
+$gpg          = $current['VERIFY_GPG']      ?? '1';
+
+$extras_set = array_flip(preg_split('/\s+/', trim($extras)));
+
+function chk($cond) { return $cond ? 'checked'  : ''; }
+function sel($cond) { return $cond ? 'selected' : ''; }
+
+/* Service status via rc script — best effort.  Missing script means the
+ * plugin has never been applied yet. */
+$rc = "/etc/rc.d/rc.$plugin";
+$status = is_executable($rc)
+    ? trim(shell_exec("$rc status 2>&1"))
+    : "(not yet applied — click Apply below)";
+
+/* If legacy/both and hpsmhd is listening, expose a link to its web UI. */
+$smh_link = '';
+if (in_array($stack, ['legacy','both'], true)) {
+    $listen = trim(shell_exec(
+        "ss -tln 2>/dev/null | awk '\$4 ~ /:2381\$/ {print \$4; exit}'"
+    ));
+    if ($listen !== '') {
+        $host = $_SERVER['SERVER_NAME'] ?? 'your-unraid';
+        $smh_link = "https://{$host}:2381/";
+    }
+}
+?>
+
+<form markdown="1" name="hpe_mgmt_form" method="POST"
+      action="/plugins/hpe-mgmt/include/settings.php" target="progressFrame">
+
+Stack to install and run:
+: <input type="radio" name="STACK" value="modern" <?=chk($stack==='modern')?>> Modern (ssacli + hponcfg) — recommended
+  <input type="radio" name="STACK" value="legacy" <?=chk($stack==='legacy')?>> Legacy SMH (hpsmh + CMA + :2381 web UI)
+  <input type="radio" name="STACK" value="both"   <?=chk($stack==='both')?>>   Both
+
+Install amsd daemon family (Tier 2 Modern):
+: <input type="checkbox" name="INSTALL_AMSD" value="1" <?=chk($install_amsd==='1')?>>
+  Adds amsd and the cpq* storage/nic/ide agents.  Pulls in the bundled
+  EL8 compat libs automatically.
+
+Extra packages:
+: <input type="checkbox" name="EX_ssaducli" <?=chk(isset($extras_set['ssaducli']))?>> ssaducli (Smart Storage diagnostics)
+  <input type="checkbox" name="EX_storcli"  <?=chk(isset($extras_set['storcli']))?>>  storcli (LSI/Broadcom RAID)
+  <input type="checkbox" name="EX_hponcfg"  <?=chk(isset($extras_set['hponcfg']))?>>  hponcfg (iLO config from OS)
+
+SNMP bridge daemons (`*_rev`):
+: <input type="checkbox" name="ENABLE_SNMP_REV" value="1" <?=chk($snmp_rev==='1')?>>
+  Only useful if you run snmpd on the host.  Off by default.
+
+HPE SDR (Modern source):
+: distribution
+  <select name="MCP_DIST">
+    <?php foreach (['CentOS','Alma','OracleLinux'] as $d): ?>
+      <option <?=sel($d === $mcp_dist)?>><?=$d?></option>
+    <?php endforeach; ?>
+  </select>
+  version
+  <select name="MCP_VER">
+    <?php foreach (['7','8','9','current'] as $v): ?>
+      <option <?=sel($v === $mcp_ver)?>><?=$v?></option>
+    <?php endforeach; ?>
+  </select>
+
+HPE SPP (Legacy SMH source):
+: version
+  <select name="SPP_LEGACY_VER">
+    <?php foreach (['2019.03.0','2020.03.0','2021.05.0','2022.03.0'] as $v): ?>
+      <option <?=sel($v === $spp_ver)?>><?=$v?></option>
+    <?php endforeach; ?>
+  </select>
+  (2022.03.0 is the last SPP that shipped hpsmh; 2022.08+ dropped it.)
+
+Verify GPG signatures + per-RPM hash:
+: <input type="checkbox" name="VERIFY_GPG" value="1" <?=chk($gpg==='1')?>>
+  (strongly recommended — off makes the plugin trust HTTPS alone)
+
+&nbsp;
+: <input type="submit" name="apply"   value="Apply (install/reinstall)">
+  <input type="submit" name="restart" value="Restart services">
+  <input type="submit" name="stop"    value="Stop services">
+
+Service status:
+: <pre style="font-family:monospace; white-space:pre-wrap;"><?=htmlspecialchars($status)?></pre>
+
+<?php if ($smh_link): ?>
+SMH web UI is up:
+: <a href="<?=htmlspecialchars($smh_link)?>" target="_blank"><?=htmlspecialchars($smh_link)?></a>
+  (log in with the root OS account — SMH authenticates against PAM.)
+<?php endif; ?>
+</form>
+
+<iframe name="progressFrame"
+        style="width:100%; height:30em; border:1px solid #555; margin-top:1em;
+               background:#111; color:#eee; font-family:monospace; font-size:0.9em;">
+</iframe>
