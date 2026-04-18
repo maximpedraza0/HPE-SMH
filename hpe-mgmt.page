@@ -54,23 +54,20 @@ if (in_array($stack, ['legacy','both'], true)) {
       action="/plugins/hpe-mgmt/include/settings.php" target="progressFrame">
 
 Stack to install and run:
-: <input type="radio" name="STACK" value="modern" <?=chk($stack==='modern')?>> Modern (ssacli + hponcfg) — recommended
-  <input type="radio" name="STACK" value="legacy" <?=chk($stack==='legacy')?>> Legacy SMH (hpsmh + CMA + :2381 web UI)
-  <input type="radio" name="STACK" value="both"   <?=chk($stack==='both')?>>   Both
+: <label><input type="radio" name="STACK" value="modern" <?=chk($stack==='modern')?>> Modern (ssacli + hponcfg) &mdash; recommended</label><br>
+  <label><input type="radio" name="STACK" value="legacy" <?=chk($stack==='legacy')?>> Legacy SMH (hpsmh + CMA + :2381 web UI)</label><br>
+  <label><input type="radio" name="STACK" value="both"   <?=chk($stack==='both')?>>   Both</label>
 
 Install amsd daemon family (Tier 2 Modern):
-: <input type="checkbox" name="INSTALL_AMSD" value="1" <?=chk($install_amsd==='1')?>>
-  Adds amsd and the cpq* storage/nic/ide agents.  Pulls in the bundled
-  EL8 compat libs automatically.
+: <label><input type="checkbox" name="INSTALL_AMSD" value="1" <?=chk($install_amsd==='1')?>> Pull in amsd + cpq* agents (adds the EL8 compat libs bundle)</label>
 
 Extra packages:
-: <input type="checkbox" name="EX_ssaducli" <?=chk(isset($extras_set['ssaducli']))?>> ssaducli (Smart Storage diagnostics)
-  <input type="checkbox" name="EX_storcli"  <?=chk(isset($extras_set['storcli']))?>>  storcli (LSI/Broadcom RAID)
-  <input type="checkbox" name="EX_hponcfg"  <?=chk(isset($extras_set['hponcfg']))?>>  hponcfg (iLO config from OS)
+: <label><input type="checkbox" name="EX_ssaducli" <?=chk(isset($extras_set['ssaducli']))?>> ssaducli (Smart Storage diagnostics)</label><br>
+  <label><input type="checkbox" name="EX_storcli"  <?=chk(isset($extras_set['storcli']))?>> storcli (LSI/Broadcom RAID)</label><br>
+  <label><input type="checkbox" name="EX_hponcfg"  <?=chk(isset($extras_set['hponcfg']))?>> hponcfg (iLO config from OS)</label>
 
 SNMP bridge daemons (`*_rev`):
-: <input type="checkbox" name="ENABLE_SNMP_REV" value="1" <?=chk($snmp_rev==='1')?>>
-  Only useful if you run snmpd on the host.  Off by default.
+: <label><input type="checkbox" name="ENABLE_SNMP_REV" value="1" <?=chk($snmp_rev==='1')?>> Start the *_rev variants (only useful if snmpd runs on the host)</label>
 
 HPE SDR (Modern source):
 : distribution
@@ -96,8 +93,7 @@ HPE SPP (Legacy SMH source):
   (2022.03.0 is the last SPP that shipped hpsmh; 2022.08+ dropped it.)
 
 Verify GPG signatures + per-RPM hash:
-: <input type="checkbox" name="VERIFY_GPG" value="1" <?=chk($gpg==='1')?>>
-  (strongly recommended — off makes the plugin trust HTTPS alone)
+: <label><input type="checkbox" name="VERIFY_GPG" value="1" <?=chk($gpg==='1')?>> Enabled (strongly recommended &mdash; off falls back to HTTPS-only trust)</label>
 
 &nbsp;
 : <input type="submit" name="apply"   value="Apply (install/reinstall)">
