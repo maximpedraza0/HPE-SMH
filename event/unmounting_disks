@@ -1,0 +1,6 @@
+#!/bin/bash
+# unRAID event hook: user is stopping the array — stop HPE services
+# before disks go away, to avoid stale locks or dangling connections.
+[[ -x /etc/rc.d/rc.hpe-mgmt ]] || exit 0
+/etc/rc.d/rc.hpe-mgmt stop >>/var/log/hpe-mgmt/event.log 2>&1
+exit 0

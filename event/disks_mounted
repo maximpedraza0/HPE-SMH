@@ -1,0 +1,9 @@
+#!/bin/bash
+# unRAID event hook: array disks have been mounted.
+# Start HPE management services now that the system is serving data.
+# This handler is dropped into /usr/local/emhttp/plugins/hpe-mgmt/event/
+# by install.sh; unRAID scans every plugin's event/<name> when the
+# corresponding event fires.
+[[ -x /etc/rc.d/rc.hpe-mgmt ]] || exit 0
+/etc/rc.d/rc.hpe-mgmt start >>/var/log/hpe-mgmt/event.log 2>&1 &
+exit 0

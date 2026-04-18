@@ -48,11 +48,14 @@ bash "${PLUGIN_DIR}/scripts/fetch-hpe.sh"
 # RHEL init scripts (hp-health, hp-snmp-agents.sh, hpsmhd.redhat) source
 # /etc/init.d/functions, which Slackware/unRAID does not ship.  Drop our
 # minimal shim implementing the handful of functions those scripts use.
-if [[ ! -e /etc/init.d/functions ]]; then
-    log "fixup: /etc/init.d/functions (RHEL compat shim)"
-    mkdir -p /etc/init.d
-    install -m 0644 "${PLUGIN_DIR}/source/compat/init-functions.sh" /etc/init.d/functions
-fi
+# unRAID does not ship /etc/init.d/functions — the plugin owns it.
+# Always refresh: our shim evolves with the plugin (pidof self-exclusion,
+# etc.) and keeping an older copy causes spurious "already running"
+# detections.  If a user has their own custom shim there we'll clobber
+# it, but that is not a normal unRAID configuration.
+log "fixup: /etc/init.d/functions (RHEL compat shim, refreshed)"
+mkdir -p /etc/init.d
+install -m 0644 "${PLUGIN_DIR}/source/compat/init-functions.sh" /etc/init.d/functions
 # hpsmh's init script uses the absolute-from-rc.d path.  Cover both conventions.
 if [[ ! -e /etc/rc.d/init.d/functions ]]; then
     log "fixup: /etc/rc.d/init.d/functions (legacy path)"
@@ -79,13 +82,30 @@ fi
 
 # hpsmh daemons run as hpsmh:hpsmh; the vendor %pre would have created
 # them via useradd/groupadd.
+#
+# We pick a fixed uid/gid (881) rather than letting `useradd -r` allocate
+# one from the default system range.  unRAID's Slackware useradd picks
+# from the top of the <1000 range, which lands on 999 — and uid 999 is
+# very commonly used by Docker containers on unRAID (Immich, etc.), so
+# host-side `ps` ends up labelling those containers' processes "hpsmh"
+# through reverse uid lookup.  That's confusing but harmless; 881 is
+# chosen to be well clear of the common Docker default.
+HPSMH_UID=881
+HPSMH_GID=881
+
 if ! getent group hpsmh >/dev/null 2>&1; then
-    log "fixup: creating hpsmh group"
-    groupadd -r hpsmh 2>/dev/null || true
+    log "fixup: creating hpsmh group (gid ${HPSMH_GID})"
+    groupadd -r -g "${HPSMH_GID}" hpsmh 2>/dev/null \
+        || groupadd -r hpsmh 2>/dev/null \
+        || true
 fi
 if ! getent passwd hpsmh >/dev/null 2>&1; then
-    log "fixup: creating hpsmh user"
-    useradd -r -g hpsmh -s /sbin/nologin -d /opt/hp/hpsmh hpsmh 2>/dev/null || true
+    log "fixup: creating hpsmh user (uid ${HPSMH_UID})"
+    useradd -r -u "${HPSMH_UID}" -g hpsmh -s /sbin/nologin \
+        -d /opt/hp/hpsmh hpsmh 2>/dev/null \
+        || useradd -r -g hpsmh -s /sbin/nologin \
+            -d /opt/hp/hpsmh hpsmh 2>/dev/null \
+        || true
 fi
 
 # Seed /opt/hp/hpsmh/conf/smhpd.xml with the same defaults the vendor %post
@@ -155,6 +175,15 @@ done
 
 log "installing rc.hpe-mgmt"
 install -m 0755 "${PLUGIN_DIR}/scripts/rc.hpe-mgmt" "/etc/rc.d/rc.${PLUGIN_NAME}"
+
+# Event hooks live at ${PLUGIN_DIR}/event/<event_name> and are auto-picked
+# by unRAID when the corresponding event fires (disks_mounted,
+# unmounting_disks).  Defensive chmod — tar should preserve +x but we
+# don't want a permission miss to leave services unmanaged.
+if [[ -d "${PLUGIN_DIR}/event" ]]; then
+    chmod +x "${PLUGIN_DIR}/event/"* 2>/dev/null || true
+    log "event hooks registered: $(ls "${PLUGIN_DIR}/event/" | paste -sd, -)"
+fi
 
 log "starting services"
 "/etc/rc.d/rc.${PLUGIN_NAME}" start || log "service start reported failure"

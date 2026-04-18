@@ -1,4 +1,5 @@
 #!/bin/bash
+# @hpe-mgmt-shim@  — marker used by install.sh to safely overwrite itself.
 # Minimal /etc/init.d/functions shim for RHEL-style init scripts on unRAID.
 # Shipped by the hpe-mgmt plugin; install.sh drops a copy at
 # /etc/init.d/functions when it doesn't already exist.
@@ -62,6 +63,22 @@ checkpid() {
     return 1
 }
 
+# __pidof_excluding_self — pidof that filters out the calling shell chain.
+# Vendor init scripts often have basename matching the daemon they manage
+# (e.g. /etc/init.d/hpsmhd manages /opt/hp/hpsmh/sbin/hpsmhd) — a naive
+# pidof -x would find the init script itself and report "already running".
+# RHEL's /etc/init.d/functions uses -o $$ -o $PPID -o %PPID to exclude the
+# current shell, its parent, and child.
+#
+# We intentionally do NOT use pidof's -c (same-cgroup) flag here: RHEL
+# does, but that assumes systemd's cgroup placement.  On unRAID's
+# non-systemd setup, the init-script shell and the daemons it launches
+# may end up in different cgroups (or an empty one), and -c would hide
+# the real daemons from status checks.
+__pidof_excluding_self() {
+    pidof -o $$ -o $PPID -o %PPID -x "$@" 2>/dev/null
+}
+
 # pidofproc [-p pidfile] program
 #   emit pid(s) to stdout, exit 0 if alive
 pidofproc() {
@@ -75,7 +92,7 @@ pidofproc() {
         fi
         return 1
     fi
-    local pids; pids="$(pidof -x "${base}" "$1" 2>/dev/null)"
+    local pids; pids="$(__pidof_excluding_self "${base}" "$1")"
     [ -n "${pids}" ] && { echo "${pids}"; return 0; }
     return 1
 }
@@ -97,7 +114,7 @@ status() {
             return 1
         fi
     else
-        pids="$(pidof -x "${base}" "$1" 2>/dev/null)"
+        pids="$(__pidof_excluding_self "${base}" "$1")"
         if [ -n "${pids}" ]; then
             echo "${base} (pid ${pids}) is running..."
             return 0
@@ -154,7 +171,7 @@ killproc() {
     if [ -n "${pidfile}" ] && [ -r "${pidfile}" ]; then
         pid="$(cat "${pidfile}" 2>/dev/null)"
     fi
-    [ -z "${pid}" ] && pid="$(pidof -x "${base}" "${prog}" 2>/dev/null)"
+    [ -z "${pid}" ] && pid="$(__pidof_excluding_self "${base}" "${prog}")"
 
     if [ -z "${pid}" ]; then
         echo_warning; return 0
