@@ -1,26 +1,23 @@
 #!/bin/bash
 # /etc/rc.d/rc.hpe-mgmt -- service manager for HPE management daemons on
-# unRAID (no systemd).  Encodes the ExecStart / EnvironmentFile / dependency
-# information from the vendor's systemd unit files.
+# unRAID (no systemd).  Each service table entry has one of two kinds:
 #
+#   kind=bin   path is a daemon binary we launch and track by pidfile.
+#              Args: <name> bin <binary> <env-file> <extra-flags>
+#              env-file is sourced for OPTIONS.  extra-flags is what the
+#              vendor systemd unit puts in ExecStart after the binary
+#              (typically "-f" for foreground).
+#
+#   kind=init  path is a SysV-style init script that accepts start/stop
+#              (and usually status/restart) as $1.  Args: <name> init
+#              <script>.  We delegate lifecycle to the script and do
+#              not track a pidfile — the vendor script owns that.
+#
+# Used by:
 #   rc.hpe-mgmt start        start services enabled by STACK
 #   rc.hpe-mgmt stop         stop everything we may have started
 #   rc.hpe-mgmt restart      stop + start
 #   rc.hpe-mgmt status       per-daemon status line
-#
-# Notes on the layout:
-#
-# * The "_rev" daemons (smad_rev, amsd_rev, cpq*_rev) exist only to feed
-#   an SNMP master agent (net-snmp).  We leave them off by default;
-#   setting ENABLE_SNMP_REV=1 in the config turns them on.
-#
-# * Each daemon has a matching /etc/sysconfig/<name> file (shipped by the
-#   RPM) containing OPTIONS="".  We source it and pass ${OPTIONS} through.
-#
-# * We pre-check ldd before starting each binary; a daemon whose shared
-#   libraries are missing (e.g. amsd without libsystemd.so.0 on an
-#   install that skipped the compat libs bundle) is reported and
-#   skipped rather than left crashing in a restart loop.
 
 set -u
 
@@ -35,37 +32,36 @@ ENABLE_SNMP_REV="0"
 
 mkdir -p "${PID_DIR}" "${LOG_DIR}"
 
-# Daemon table.  One entry per line, tab-separated:
-#   name    binary              env-file                    extra-args
-# Extra-args is what goes in ExecStart after the binary.  For most amsd
-# daemons it's "-f" (foreground); smad itself has no flag.
+# Daemon tables.  Tab-separated, 3–5 columns depending on kind:
+#   name<TAB>kind<TAB>path[<TAB>env-file[<TAB>extra-args]]
+# Unused trailing columns (e.g. env-file for init-kind) should be empty.
 read -r -d '' MODERN_TABLE <<'EOT' || true
-smad	/sbin/smad	/etc/sysconfig/smad
-ahslog	/sbin/ahslog	/etc/sysconfig/ahslog	-f
-amsd	/sbin/amsd	/etc/sysconfig/amsd	-f
-cpqFca	/sbin/cpqFca	/etc/sysconfig/cpqFca	-f
-cpqIde	/sbin/cpqIde	/etc/sysconfig/cpqIde	-f
-cpqScsi	/sbin/cpqScsi	/etc/sysconfig/cpqScsi	-f
-cpqiScsi	/sbin/cpqiScsi	/etc/sysconfig/cpqiScsi	-f
-mr_cpqScsi	/sbin/mr_cpqScsi	/etc/sysconfig/mr_cpqScsi	-f
+smad	bin	/sbin/smad	/etc/sysconfig/smad
+ahslog	bin	/sbin/ahslog	/etc/sysconfig/ahslog	-f
+amsd	bin	/sbin/amsd	/etc/sysconfig/amsd	-f
+cpqFca	bin	/sbin/cpqFca	/etc/sysconfig/cpqFca	-f
+cpqIde	bin	/sbin/cpqIde	/etc/sysconfig/cpqIde	-f
+cpqScsi	bin	/sbin/cpqScsi	/etc/sysconfig/cpqScsi	-f
+cpqiScsi	bin	/sbin/cpqiScsi	/etc/sysconfig/cpqiScsi	-f
+mr_cpqScsi	bin	/sbin/mr_cpqScsi	/etc/sysconfig/mr_cpqScsi	-f
 EOT
 
 read -r -d '' MODERN_SNMP_REV_TABLE <<'EOT' || true
-smad_rev	/sbin/smad_rev	/etc/sysconfig/smad_rev
-amsd_rev	/sbin/amsd_rev	/etc/sysconfig/amsd_rev	-f
-cpqFca_rev	/sbin/cpqFca_rev	/etc/sysconfig/cpqFca_rev	-f
-cpqIde_rev	/sbin/cpqIde_rev	/etc/sysconfig/cpqIde_rev	-f
+smad_rev	bin	/sbin/smad_rev	/etc/sysconfig/smad_rev
+amsd_rev	bin	/sbin/amsd_rev	/etc/sysconfig/amsd_rev	-f
+cpqFca_rev	bin	/sbin/cpqFca_rev	/etc/sysconfig/cpqFca_rev	-f
+cpqIde_rev	bin	/sbin/cpqIde_rev	/etc/sysconfig/cpqIde_rev	-f
 EOT
 
+# Legacy SMH stack.  hp-snmp-agents.sh transitively starts hp-health's
+# $DEPSCRIPT, but listing hp-health first is idempotent and makes status
+# output clearer.  hpsmhd depends on /etc/init.d/hpsmhd which install.sh
+# symlinks from /opt/hp/hpsmh/support/hpsmhd.redhat.
 read -r -d '' LEGACY_TABLE <<'EOT' || true
-cmathreshd	/sbin/cmathreshd	/etc/sysconfig/cmathreshd
-cmapeerd	/sbin/cmapeerd	/etc/sysconfig/cmapeerd
-cmahealthd	/sbin/cmahealthd	/etc/sysconfig/cmahealthd
-cmahostd	/sbin/cmahostd	/etc/sysconfig/cmahostd
-cmaperfd	/sbin/cmaperfd	/etc/sysconfig/cmaperfd
-cmasm2d	/sbin/cmasm2d	/etc/sysconfig/cmasm2d
-cmaidad	/sbin/cmaidad	/etc/sysconfig/cmaidad
-hpsmhd	/opt/hp/hpsmh/sbin/hpsmhd	/etc/sysconfig/hpsmhd
+hp-health	init	/etc/init.d/hp-health
+hp-snmp-agents	init	/usr/lib/systemd/scripts/hp-snmp-agents.sh
+hp-ams	bin	/sbin/amsHelper	/etc/sysconfig/hp-ams	-f
+hpsmhd	init	/etc/init.d/hpsmhd
 EOT
 
 daemon_table() {
@@ -90,8 +86,6 @@ is_running() {
     [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null
 }
 
-# Check a binary can actually run (all its shared libs resolve).
-# Return 0 if OK, 1 otherwise.
 bin_runnable() {
     local bin="$1"
     [[ -x "${bin}" ]] || return 1
@@ -99,41 +93,57 @@ bin_runnable() {
     return 0
 }
 
-start_one() {
-    local name="$1" bin="$2" envfile="$3" args="$4"
-    if [[ ! -x "${bin}" ]]; then
-        printf '  %-12s skip (binary missing)\n' "${name}"
+# -----------------------------------------------------------------------
+# start / stop / status per-kind
+# -----------------------------------------------------------------------
+start_bin() {
+    local name="$1" path="$2" envfile="$3" args="$4"
+    if [[ ! -x "${path}" ]]; then
+        printf '  %-14s skip (binary missing)\n' "${name}"
         return 0
     fi
-    if ! bin_runnable "${bin}"; then
+    if ! bin_runnable "${path}"; then
         local missing
-        missing="$(ldd "${bin}" 2>/dev/null | awk '/not found/ {print $1}' | paste -sd, -)"
-        printf '  %-12s skip (missing libs: %s)\n' "${name}" "${missing}"
+        missing="$(ldd "${path}" 2>/dev/null | awk '/not found/ {print $1}' | sort -u | paste -sd, -)"
+        printf '  %-14s skip (missing libs: %s)\n' "${name}" "${missing}"
         return 0
     fi
     if is_running "${name}"; then
-        printf '  %-12s already running\n' "${name}"
+        printf '  %-14s already running\n' "${name}"
         return 0
     fi
     local options=""
     [[ -r "${envfile}" ]] && { . "${envfile}" 2>/dev/null || true; options="${OPTIONS:-}"; }
-    printf '  %-12s start\n' "${name}"
-    ( "${bin}" ${args} ${options} >>"${LOG_DIR}/${name}.log" 2>&1 ) &
+    printf '  %-14s start (bin)\n' "${name}"
+    ( "${path}" ${args} ${options} >>"${LOG_DIR}/${name}.log" 2>&1 ) &
     echo $! >"${PID_DIR}/${name}.pid"
     sleep 0.3
     if ! is_running "${name}"; then
-        printf '  %-12s did not stay up — see %s\n' "${name}" "${LOG_DIR}/${name}.log"
+        printf '  %-14s did not stay up — see %s\n' "${name}" "${LOG_DIR}/${name}.log"
     fi
 }
 
-stop_one() {
-    local name="$1" pidfile="${PID_DIR}/$1.pid"
+start_init() {
+    local name="$1" script="$2"
+    if [[ ! -x "${script}" ]]; then
+        printf '  %-14s skip (init script missing: %s)\n' "${name}" "${script}"
+        return 0
+    fi
+    printf '  %-14s start (init)\n' "${name}"
+    if ! "${script}" start >>"${LOG_DIR}/${name}.log" 2>&1; then
+        printf '  %-14s init script reported failure — see %s\n' "${name}" "${LOG_DIR}/${name}.log"
+    fi
+}
+
+stop_bin() {
+    local name="$1"
+    local pidfile="${PID_DIR}/${name}.pid"
     if ! is_running "${name}"; then
         rm -f "${pidfile}"
         return 0
     fi
     local pid; pid="$(cat "${pidfile}")"
-    printf '  %-12s stop (pid %s)\n' "${name}" "${pid}"
+    printf '  %-14s stop  (pid %s)\n' "${name}" "${pid}"
     kill "${pid}" 2>/dev/null || true
     for _ in 1 2 3 4 5 6 7 8 9 10; do
         kill -0 "${pid}" 2>/dev/null || break
@@ -143,51 +153,107 @@ stop_one() {
     rm -f "${pidfile}"
 }
 
+stop_init() {
+    local name="$1" script="$2"
+    if [[ ! -x "${script}" ]]; then
+        return 0
+    fi
+    printf '  %-14s stop  (init)\n' "${name}"
+    "${script}" stop >>"${LOG_DIR}/${name}.log" 2>&1 || true
+}
+
+status_bin() {
+    local name="$1" path="$2"
+    if [[ ! -x "${path}" ]]; then
+        printf '  %-14s  not installed\n' "${name}"
+    elif ! bin_runnable "${path}"; then
+        printf '  %-14s  installed but missing libs\n' "${name}"
+    elif is_running "${name}"; then
+        printf '  %-14s  running (pid %s)\n' "${name}" "$(cat "${PID_DIR}/${name}.pid")"
+    else
+        printf '  %-14s  stopped\n' "${name}"
+    fi
+}
+
+status_init() {
+    local name="$1" script="$2"
+    if [[ ! -x "${script}" ]]; then
+        printf '  %-14s  not installed\n' "${name}"
+        return
+    fi
+    if "${script}" status >/dev/null 2>&1; then
+        printf '  %-14s  running (init)\n' "${name}"
+    else
+        printf '  %-14s  stopped (init)\n' "${name}"
+    fi
+}
+
+# -----------------------------------------------------------------------
+# dispatch
+# -----------------------------------------------------------------------
+dispatch_start() {
+    local name="$1" kind="$2" path="$3" envfile="$4" args="$5"
+    case "${kind}" in
+        bin)  start_bin  "${name}" "${path}" "${envfile}" "${args}" ;;
+        init) start_init "${name}" "${path}" ;;
+        *)    printf '  %-14s unknown kind: %s\n' "${name}" "${kind}" ;;
+    esac
+}
+
+dispatch_stop() {
+    local name="$1" kind="$2" path="$3" envfile="$4" args="$5"
+    case "${kind}" in
+        bin)  stop_bin  "${name}" ;;
+        init) stop_init "${name}" "${path}" ;;
+    esac
+}
+
+dispatch_status() {
+    local name="$1" kind="$2" path="$3" envfile="$4" args="$5"
+    case "${kind}" in
+        bin)  status_bin  "${name}" "${path}" ;;
+        init) status_init "${name}" "${path}" ;;
+        *)    printf '  %-14s  unknown kind\n' "${name}" ;;
+    esac
+}
+
+# -----------------------------------------------------------------------
+# iteration
+# -----------------------------------------------------------------------
 foreach_entry() {
-    # Call callback with: name binary envfile args
-    local line name bin envfile args
-    while IFS=$'\t' read -r name bin envfile args; do
+    local callback="$1"
+    local name kind path envfile args
+    while IFS=$'\t' read -r name kind path envfile args; do
         [[ -z "${name:-}" ]] && continue
-        "$1" "${name}" "${bin}" "${envfile}" "${args}"
+        "${callback}" "${name}" "${kind:-bin}" "${path:-}" "${envfile:-}" "${args:-}"
     done < <(daemon_table)
 }
 
 foreach_entry_reverse() {
+    local callback="$1"
     local -a lines=()
     mapfile -t lines < <(daemon_table)
+    local name kind path envfile args
     for (( i=${#lines[@]}-1; i>=0; i-- )); do
         [[ -z "${lines[$i]}" ]] && continue
-        IFS=$'\t' read -r name bin envfile args <<< "${lines[$i]}"
-        "$1" "${name}" "${bin}" "${envfile}" "${args}"
+        IFS=$'\t' read -r name kind path envfile args <<< "${lines[$i]}"
+        "${callback}" "${name}" "${kind:-bin}" "${path:-}" "${envfile:-}" "${args:-}"
     done
 }
 
 cmd_start() {
     echo "[rc.hpe-mgmt] starting (stack=${STACK}, snmp_rev=${ENABLE_SNMP_REV})"
-    foreach_entry start_one
+    foreach_entry dispatch_start
 }
 
 cmd_stop() {
     echo "[rc.hpe-mgmt] stopping"
-    foreach_entry_reverse stop_one
-}
-
-print_status() {
-    local name="$1" bin="$2"
-    if [[ ! -x "${bin}" ]]; then
-        printf '  %-12s  not installed\n' "${name}"
-    elif ! bin_runnable "${bin}"; then
-        printf '  %-12s  installed but missing libs\n' "${name}"
-    elif is_running "${name}"; then
-        printf '  %-12s  running (pid %s)\n' "${name}" "$(cat "${PID_DIR}/${name}.pid")"
-    else
-        printf '  %-12s  stopped\n' "${name}"
-    fi
+    foreach_entry_reverse dispatch_stop
 }
 
 cmd_status() {
     echo "[rc.hpe-mgmt] status (stack=${STACK})"
-    foreach_entry print_status
+    foreach_entry dispatch_status
 }
 
 case "${1:-}" in
