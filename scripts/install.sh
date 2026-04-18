@@ -71,6 +71,19 @@ if [[ -x /opt/hp/hpsmh/support/hpsmhd.redhat && ! -e /etc/init.d/hpsmhd ]]; then
     ln -sf /opt/hp/hpsmh/support/hpsmhd.redhat /etc/init.d/hpsmhd
 fi
 
+# hp-health / hp-snmp-agents ship their start scripts under
+# /usr/lib/systemd/scripts/ and have a vendor %post that symlinks them
+# into /etc/init.d.  rpm2tgz drops that; recreate idempotently.
+for svc in hp-health hp-snmp-agents; do
+    src="/usr/lib/systemd/scripts/${svc}.sh"
+    dst="/etc/init.d/${svc}"
+    if [[ -x "${src}" && ! -e "${dst}" ]]; then
+        log "fixup: ${dst} -> ${src}"
+        mkdir -p /etc/init.d
+        ln -sf "${src}" "${dst}"
+    fi
+done
+
 # hpsmh's init script sources /opt/hp/hpsmh/bin/fixperms, but the RPM ships
 # the file at /opt/hp/hpsmh/support/fixperms — the %post would have placed
 # or symlinked it.

@@ -16,16 +16,24 @@ function post($k, $default = '') {
 
 /* --- sanitise inputs --- */
 $stack = post('STACK', 'modern');
-if (!in_array($stack, ['modern','legacy','both'], true)) $stack = 'modern';
+if (!in_array($stack, ['modern','legacy','disabled'], true)) $stack = 'modern';
 
 $extras = [];
-foreach (['ssaducli','storcli','hponcfg'] as $k) {
-    if (isset($_POST["EX_$k"])) $extras[] = $k;
+foreach ([
+    'ssa','ssaducli','storcli','hponcfg','fibreutils','sut',
+    'hpe-emulex-smartsan-enablement-kit','hpe-qlogic-smartsan-enablement-kit',
+] as $k) {
+    /* form key can't contain hyphens nicely; use underscores in name. */
+    $formkey = 'EX_' . str_replace('-', '_', $k);
+    if (isset($_POST[$formkey])) $extras[] = $k;
 }
 
 $mcp_dist = preg_replace('/[^A-Za-z]/',    '', post('MCP_DIST', 'CentOS'));
 $mcp_ver  = preg_replace('/[^A-Za-z0-9]/', '', post('MCP_VER',  '8'));
-$spp_ver  = preg_replace('/[^0-9.]/',      '', post('SPP_LEGACY_VER', '2022.03.0'));
+$spp_ver  = post('SPP_LEGACY_VER', 'auto');
+if ($spp_ver !== 'auto' && !preg_match('/^20[0-9]{2}\.[0-9]{2}\.[0-9]+$/', $spp_ver)) {
+    $spp_ver = 'auto';
+}
 
 $install_amsd = isset($_POST['INSTALL_AMSD'])    ? '1' : '0';
 $snmp_rev     = isset($_POST['ENABLE_SNMP_REV']) ? '1' : '0';

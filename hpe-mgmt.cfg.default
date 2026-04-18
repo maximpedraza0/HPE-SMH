@@ -2,9 +2,12 @@
 # Lives at /boot/config/plugins/hpe-mgmt/hpe-mgmt.cfg (persists across reboots).
 
 # Which stack to install and run.
-#   modern  -> amsd + ssacli + hponcfg (recommended; feeds iLO)
-#   legacy  -> hpsmh + CMA daemons + :2381 web UI (deprecated by HPE ~2018)
-#   both    -> everything
+#   modern   -> everything from HPE SDR MCP: ssacli + hponcfg (+ amsd if
+#               INSTALL_AMSD=1).  CLI only.
+#   legacy   -> everything from HPE SDR SPP 2022.03.0: hpsmh + hp-smh-templates
+#               + hp-health + hp-snmp-agents + hp-ams + matched ssacli/hponcfg.
+#               Exposes the :2381 SMH web UI.
+#   disabled -> install nothing, stop everything (plugin stays dormant).
 STACK="modern"
 
 # Optional extra packages (space-separated). See fetch-hpe.sh resolve_packages.
@@ -17,7 +20,10 @@ MCP_VER="8"
 
 # Last SPP release that still shipped SMH.  2022.03.0 is the newest; 2022.08+
 # dropped SMH entirely.  Only consulted when STACK=legacy or STACK=both.
-SPP_LEGACY_VER="2022.03.0"
+# Set to "auto" to let the plugin pick based on detected server generation
+# (Gen8 -> 2020.09.0, Gen9 -> 2021.10.0, Gen10 -> 2022.03.0).  Override by
+# writing an explicit "YYYY.MM.N" value from the settings page.
+SPP_LEGACY_VER="auto"
 
 # Install the amsd daemon family (Tier 2).  These link against libraries
 # that unRAID does not ship (libsystemd, librpm.so.8, libjson-c.so.4); set

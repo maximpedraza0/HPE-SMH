@@ -25,11 +25,30 @@ STACK="modern"
 EXTRAS=""
 MCP_DIST="CentOS"
 MCP_VER="8"
-SPP_LEGACY_VER="2022.03.0"
+SPP_LEGACY_VER="auto"
 INSTALL_AMSD="0"
 VERIFY_GPG="1"
 
 [[ -f "${CFG}" ]] && . "${CFG}"
+
+# Auto-pick SPP version from the detected ProLiant generation.  Gen8 sticks
+# to 2020.09.0 (last drop with ssa 4.x that knows the P420 and kin); Gen9
+# tracks 2021.10.0; Gen10/Gen10 Plus use 2022.03.0 (newest SPP with SMH).
+# When dmidecode can't read a matching name we fall back to 2020.09.0
+# — the broadest-compat drop.
+resolve_spp_auto() {
+    local prod
+    prod="$(dmidecode -s system-product-name 2>/dev/null || true)"
+    case "${prod}" in
+        *Gen8*)  echo "2020.09.0" ;;
+        *Gen9*)  echo "2021.10.0" ;;
+        *Gen10*) echo "2022.03.0" ;;
+        *)       echo "2020.09.0" ;;
+    esac
+}
+if [[ -z "${SPP_LEGACY_VER}" || "${SPP_LEGACY_VER}" == "auto" ]]; then
+    SPP_LEGACY_VER="$(resolve_spp_auto)"
+fi
 
 mkdir -p "${CACHE_DIR}" "${STATE_DIR}"
 
@@ -53,7 +72,9 @@ ALMA_APPSTREAM="https://repo.almalinux.org/almalinux/8/AppStream/x86_64/os"
 # Package resolution
 # ---------------------------------------------------------------------------
 # Tier 1 CLI tools: self-contained, standard libs only.  Verified on
-# unRAID 7.2.3 / kernel 6.12.54.
+# unRAID 7.2.3 / kernel 6.12.54.  ssacli is pulled from MCP when running
+# pure modern, and from SPP when legacy/both is selected — SPP 2022.03.0
+# ships the newer 5.30 versions while MCP "current" is pinned at 5.10-44.
 TIER1_MODERN=(ssacli hponcfg)
 
 # Tier 2 daemons (amsd family): need compat libs (librpm.so.8, libjson-c.so.4,
@@ -79,17 +100,22 @@ COMPAT_PKGS_APPSTREAM=(libidn)
 resolve_packages() {
     local stack="$1" extras="$2"
 
+    # Each stack has ONE canonical source to keep transitive deps consistent:
+    #   modern -> HPE SDR MCP "current" (older ssa 5.10, but matched toolchain)
+    #   legacy -> HPE SDR SPP 2022.03.0 (newer ssa 5.30 paired with hpsmh 7.6.7)
+    # amsd lives only in MCP so it always comes from there.
+    local tier1_repo="${HPE_SDR_MCP}"
+    [[ "${stack}" == "legacy" ]] && tier1_repo="${HPE_SDR_SPP}"
+
     case "${stack}" in
-        modern|both)
-            for p in "${TIER1_MODERN[@]}"; do echo "${HPE_SDR_MCP} ${p}"; done
+        modern)
+            for p in "${TIER1_MODERN[@]}"; do echo "${tier1_repo} ${p}"; done
             if [[ "${INSTALL_AMSD}" == "1" ]]; then
                 for p in "${TIER2_MODERN[@]}"; do echo "${HPE_SDR_MCP} ${p}"; done
             fi
             ;;
-    esac
-
-    case "${stack}" in
-        legacy|both)
+        legacy)
+            for p in "${TIER1_MODERN[@]}"; do echo "${tier1_repo} ${p}"; done
             for p in "${LEGACY_PKGS[@]}"; do echo "${HPE_SDR_SPP} ${p}"; done
             ;;
     esac
@@ -102,7 +128,10 @@ resolve_packages() {
 
     for e in ${extras}; do
         case "${e}" in
-            ssaducli|storcli|hponcfg) echo "${HPE_SDR_MCP} ${e}" ;;
+            ssa|ssaducli|hponcfg|fibreutils|sut|amsd) echo "${tier1_repo} ${e}" ;;
+            hpe-emulex-smartsan-enablement-kit|hpe-qlogic-smartsan-enablement-kit)
+                echo "${tier1_repo} ${e}" ;;
+            storcli) echo "${HPE_SDR_MCP} ${e}" ;;  # MCP-only
             diag) warn "HPE Offline Diagnostics is ISO-based; skipping" ;;
             *)    warn "unknown extra: ${e}" ;;
         esac
@@ -267,6 +296,11 @@ install_one_rpm() {
 # ---------------------------------------------------------------------------
 main() {
     log "stack=${STACK} extras=[${EXTRAS}] mcp=${MCP_DIST}/${MCP_VER} spp=${SPP_LEGACY_VER} amsd=${INSTALL_AMSD}"
+
+    if [[ "${STACK}" == "disabled" ]]; then
+        log "stack=disabled — not fetching anything"
+        return 0
+    fi
 
     refresh_checksum_map
 

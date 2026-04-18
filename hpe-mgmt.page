@@ -20,7 +20,7 @@ $stack        = $current['STACK']           ?? 'modern';
 $extras       = $current['EXTRAS']          ?? '';
 $mcp_dist     = $current['MCP_DIST']        ?? 'CentOS';
 $mcp_ver      = $current['MCP_VER']         ?? '8';
-$spp_ver      = $current['SPP_LEGACY_VER']  ?? '2022.03.0';
+$spp_ver      = $current['SPP_LEGACY_VER']  ?? 'auto';
 $install_amsd = $current['INSTALL_AMSD']    ?? '0';
 $snmp_rev     = $current['ENABLE_SNMP_REV'] ?? '0';
 $gpg          = $current['VERIFY_GPG']      ?? '1';
@@ -30,6 +30,79 @@ $extras_set = array_flip(preg_split('/\s+/', trim($extras)));
 function chk($cond) { return $cond ? 'checked'  : ''; }
 function sel($cond) { return $cond ? 'selected' : ''; }
 
+/* Register plugin help strings into unRAID's $language map so we can
+ * use the native :hpe_mgmt_xxx_help: syntax in the markdown body.  The
+ * translate() call reached at eval time will find our entries and
+ * emit a Markdown-rendered blockquote in-place — same pattern as
+ * Settings/ManagementAccess and the other stock pages. */
+/* Markdown blockquotes (each line starts with "> ") render into the
+ * same blue-bordered <blockquote> that unRAID uses for its own
+ * :foo_help: entries (see default-base.css ≈ line 1715). */
+global $language;
+$language['_hpe_mgmt_stack_help'] = <<<MD
+> Which set of HPE management software to install and start.
+>
+> * **Modern** — CLI-only install (`ssacli` for Smart Array, `hponcfg` for iLO).
+> * **Legacy SMH** — brings the System Management Homepage back: a web dashboard
+>   on port **2381** that aggregates health, storage, firmware and SNMP data.
+> * **Disabled** — stops everything the plugin controls but leaves the plugin
+>   installed for later re-enable.
+MD;
+
+$language['_hpe_mgmt_amsd_help'] = <<<MD
+> HPE **Agentless Management Service daemon**.  Pushes OS-side telemetry
+> (CPU, memory, disks, NICs, PSU) into iLO over the PCIe management channel,
+> so the iLO web UI and Integrated Management Log see a complete picture.
+>
+> Designed for Gen10 and newer; on Gen8 the iLO 4 firmware already gets what
+> it needs from hp-ams.  Enabling this also installs the EL8 compat-libs
+> bundle (~8 MB).
+MD;
+
+$language['_hpe_mgmt_extras_help'] = <<<MD
+> Optional packages installed alongside the stack you selected.
+>
+> * **ssa** — Graphical RAID configuration for Smart Array controllers;
+>   registers as the Storage panel inside the Legacy SMH web UI.
+> * **ssaducli** — CLI that generates the Smart Storage diagnostic bundle
+>   HPE support asks for when you open a storage case.
+> * **storcli** — Broadcom/LSI MegaRAID CLI.  Only for non-HPE RAID cards
+>   (SAS3416, SAS9361, etc.); Smart Array uses `ssacli`.
+> * **hponcfg** — Reconfigure iLO from the OS (IP, user, certs, reset).
+>   Already bundled with the modern and legacy stacks.
+> * **fibreutils** — Emulex / QLogic FC HBA utilities; feeds SMH's
+>   Fibre Channel panel.
+> * **sut** — HPE Smart Update Tool; applies firmware baselines (BIOS,
+>   iLO, NIC, HBA) from a Service Pack.  Runs on its own, no SMH panel.
+> * **hpe-emulex-smartsan-enablement-kit** — enables HPE Smart SAN
+>   (auto-zoning + fabric health) for Emulex FC HBAs.
+> * **hpe-qlogic-smartsan-enablement-kit** — same Smart SAN integration
+>   for QLogic FC HBAs.
+MD;
+
+$language['_hpe_mgmt_snmp_rev_help'] = <<<MD
+> HPE CMA agents normally answer the proprietary `cma*` protocol on their
+> own sockets.  The `_rev` variants are shims that forward the same data
+> to a local Net-SNMP daemon (`snmpd`), so standard SNMP monitoring tools
+> can read HPE OIDs.  Leave off unless you already run snmpd on the host.
+MD;
+
+$language['_hpe_mgmt_gpg_help'] = <<<MD
+> End-to-end integrity check of every RPM.  The plugin downloads
+> `repomd.xml` and its signature from each repo (HPE SDR + AlmaLinux),
+> verifies with the pinned keys under `source/keys/`, then sha1/sha256-
+> checks every package against the `primary.xml` manifest before
+> `rpm2tgz`.  With it off only TLS protects the wire.  Keep on unless
+> debugging a broken repo.
+MD;
+
+$language['_hpe_mgmt_advanced_help'] = <<<MD
+> Exposes repository-source controls and other expert knobs.  Defaults
+> are already tuned for every supported ProLiant generation — flip this
+> on only if you need to pin a specific SPP drop or change the MCP
+> distribution.
+MD;
+
 /* Service status via rc script — best effort.  Missing script means the
  * plugin has never been applied yet. */
 $rc = "/etc/rc.d/rc.$plugin";
@@ -37,66 +110,186 @@ $status = is_executable($rc)
     ? trim(shell_exec("$rc status 2>&1"))
     : "(not yet applied — click Apply below)";
 
-/* If legacy/both and hpsmhd is listening, expose a link to its web UI. */
-$smh_link = '';
-if (in_array($stack, ['legacy','both'], true)) {
-    $listen = trim(shell_exec(
-        "ss -tln 2>/dev/null | awk '\$4 ~ /:2381\$/ {print \$4; exit}'"
-    ));
-    if ($listen !== '') {
-        $host = $_SERVER['SERVER_NAME'] ?? 'your-unraid';
-        $smh_link = "https://{$host}:2381/";
+/* Collect every web UI the plugin has made available on this box. */
+$web_links = [];
+$host = $_SERVER['SERVER_NAME'] ?? 'your-unraid';
+
+/* SMH — listens on :2381 when legacy stack is up. */
+$smh_listening = trim(shell_exec(
+    "ss -tln 2>/dev/null | awk '\$4 ~ /:2381\$/ {print \$4; exit}'"
+));
+if ($smh_listening !== '') {
+    $web_links[] = [
+        'label' => 'HPE System Management Homepage',
+        'url'   => "https://{$host}:2381/",
+        'note'  => 'aggregated hardware dashboard — login with root OS credentials',
+    ];
+    if (is_dir('/opt/smartstorageadmin')) {
+        $web_links[] = [
+            'label' => 'Smart Storage Administrator (RAID)',
+            'url'   => "https://{$host}:2381/ssa/",
+            'note'  => 'Smart Array controller configuration',
+        ];
     }
 }
+
+/* iLO — query its IP via hponcfg if we have it + the kernel module. */
+if (is_executable('/sbin/hponcfg') && is_dir('/dev/hpilo')) {
+    $out = shell_exec("/sbin/hponcfg -w /tmp/ilo.xml 2>/dev/null && xmllint --xpath \"string(//IP_ADDRESS/@VALUE)\" /tmp/ilo.xml 2>/dev/null; rm -f /tmp/ilo.xml");
+    $ilo_ip = trim($out);
+    if ($ilo_ip !== '' && filter_var($ilo_ip, FILTER_VALIDATE_IP)) {
+        $web_links[] = [
+            'label' => 'iLO Management',
+            'url'   => "https://{$ilo_ip}/",
+            'note'  => 'out-of-band iLO firmware web UI',
+        ];
+    }
+}
+
+/* ---- Hardware status -------------------------------------------------
+ * Modern stack has no web UI — everything is CLI.  Summarise here what
+ * ssacli, hponcfg and lsmod would show on a root shell, so the user
+ * gets a one-glance view of the hardware the plugin is managing.
+ */
+function hpe_mgmt_server_generation() {
+    $name = trim(shell_exec('dmidecode -s system-product-name 2>/dev/null'));
+    if ($name === '') return ['name'=>'', 'gen'=>'', 'spp'=>''];
+    /* Match "Gen8", "Gen10", "Gen10 Plus", etc. */
+    $gen = ''; $spp = '';
+    if (preg_match('/Gen(\d+)(\s*Plus)?/i', $name, $m)) {
+        $gen = 'Gen' . $m[1] . (!empty($m[2]) ? ' Plus' : '');
+        $spp = [
+            '8'  => '2020.09.0',  // last drop with ssa 4.x that detects P420 etc.
+            '9'  => '2021.10.0',
+            '10' => '2022.03.0',  // newest SPP with SMH
+        ][$m[1]] ?? '2022.03.0';
+    }
+    return ['name' => $name, 'gen' => $gen, 'spp' => $spp];
+}
+$hwgen = hpe_mgmt_server_generation();
+
+function hpe_mgmt_module_status() {
+    if (trim(shell_exec("lsmod 2>/dev/null | awk '\$1==\"hpilo\"{print;exit}'")) !== '') {
+        $vm = trim(shell_exec(
+            "modinfo -F vermagic /lib/modules/\$(uname -r)/extra/hpilo.ko 2>/dev/null"
+        ));
+        $vm = $vm !== '' ? $vm : '(unknown)';
+        return ['loaded' => true,  'detail' => "loaded — vermagic: {$vm}"];
+    }
+    if (is_readable("/lib/modules/" . trim(shell_exec('uname -r')) . "/extra/hpilo.ko")) {
+        return ['loaded' => false, 'detail' => 'built but not loaded (modprobe hpilo)'];
+    }
+    return ['loaded' => false, 'detail' => 'not installed (external builder hasn\'t run)'];
+}
+
+function hpe_mgmt_ssacli_summary() {
+    if (!is_executable('/usr/sbin/ssacli')) return null;
+    return trim(shell_exec('/usr/sbin/ssacli controller all show 2>&1'));
+}
+
+function hpe_mgmt_hponcfg_summary() {
+    if (!is_executable('/sbin/hponcfg')) return null;
+    /* -g prints generic info; short and non-interactive. */
+    $out = trim(shell_exec('/sbin/hponcfg -g 2>&1'));
+    /* If the hpilo driver isn't loaded hponcfg emits a multi-line error; keep it short. */
+    if (strpos($out, 'CPQCIDRV driver is not loaded') !== false) {
+        return "(iLO driver not loaded — load hpilo.ko to query)";
+    }
+    return $out;
+}
+
+$module    = hpe_mgmt_module_status();
+$ssacli    = hpe_mgmt_ssacli_summary();
+$hponcfg   = hpe_mgmt_hponcfg_summary();
 ?>
 
+<!-- switchButton CSS + JS are page-scoped, not global; each page that uses
+     them has to pull them in explicitly.  autov() is unRAID's versioned
+     asset helper.  jQuery is already in the template. -->
+<link type="text/css" rel="stylesheet" href="<?autov('/webGui/styles/jquery.switchbutton.css')?>">
+<script src="<?autov('/webGui/javascript/jquery.switchbutton.js')?>"></script>
+
 <style>
-  /* Advanced-only blocks are hidden until the top-level switch is ticked.
-     Kept inline so the page stays self-contained. */
-  .hpe-mgmt-advanced { display: none; }
-  body.hpe-mgmt-adv .hpe-mgmt-advanced { display: block; }
+  /* Advanced-only blocks are hidden until the top-level switch turns them on.
+     Matches the dynamix convention used by Syslinux / DockerSettings. */
+  .advanced { display: none; }
 </style>
 <script>
-  (function () {
-    var KEY = 'hpe-mgmt-adv';
-    var on  = localStorage.getItem(KEY) === '1';
-    if (on) document.body.classList.add('hpe-mgmt-adv');
-    /* Wire the checkbox after the page has finished parsing. */
-    document.addEventListener('DOMContentLoaded', function () {
-      var box = document.getElementById('hpe-mgmt-adv-toggle');
-      if (!box) return;
-      box.checked = on;
-      box.addEventListener('change', function () {
-        localStorage.setItem(KEY, box.checked ? '1' : '0');
-        document.body.classList.toggle('hpe-mgmt-adv', box.checked);
-      });
+  $(function () {
+    if ($.cookie('hpe_mgmt_viewmode') === 'advanced') {
+      $('.advanced').show();
+    }
+    $('.advancedview').switchButton({
+      labels_placement: 'left',
+      off_label: 'Basic view',
+      on_label:  'Advanced view',
+      checked:   $.cookie('hpe_mgmt_viewmode') === 'advanced'
     });
-  })();
+    $('.advancedview').change(function () {
+      $('.advanced').toggle('slow');
+      $.cookie('hpe_mgmt_viewmode',
+        $('.advancedview').is(':checked') ? 'advanced' : 'basic',
+        {expires: 3650});
+    });
+
+    /* Show only the bits relevant to the current stack — the amsd
+       Tier 2 checkbox is Modern-only (Legacy already bundles hp-ams),
+       and each repo-source block belongs to its own stack. */
+    function hpeMgmtToggleStack() {
+      var s = $('select[name=STACK]').val();
+      $('.hpe-modern-only').toggle(s === 'modern');
+      $('.hpe-src-modern').toggle(s === 'modern');
+      $('.hpe-src-legacy').toggle(s === 'legacy');
+    }
+    hpeMgmtToggleStack();
+    $('select[name=STACK]').change(hpeMgmtToggleStack);
+  });
 </script>
 
 <form markdown="1" name="hpe_mgmt_form" method="POST"
       action="/plugins/hpe-mgmt/include/settings.php" target="progressFrame">
 
-Advanced settings:
-: <label><input type="checkbox" id="hpe-mgmt-adv-toggle"> Show advanced options (repository tags &amp; similar)</label>
+&nbsp;
+: <span><input type="checkbox" class="advancedview"></span>
+
+:hpe_mgmt_advanced_help:
 
 Stack to install and run:
-: <label><input type="radio" name="STACK" value="modern" <?=chk($stack==='modern')?>> Modern (ssacli + hponcfg) &mdash; recommended</label><br>
-  <label><input type="radio" name="STACK" value="legacy" <?=chk($stack==='legacy')?>> Legacy SMH (hpsmh + CMA + :2381 web UI)</label><br>
-  <label><input type="radio" name="STACK" value="both"   <?=chk($stack==='both')?>>   Both</label>
+: <select name="STACK">
+    <option value="modern"   <?=sel($stack==='modern')?>>Modern — ssacli + hponcfg (CLI; recommended)</option>
+    <option value="legacy"   <?=sel($stack==='legacy')?>>Legacy SMH — hpsmh + CMA + :2381 web UI</option>
+    <option value="disabled" <?=sel($stack==='disabled')?>>Disabled — install nothing, stop everything</option>
+  </select>
+
+:hpe_mgmt_stack_help:
+
+<div class="hpe-modern-only" markdown="1">
 
 Install amsd daemon family (Tier 2 Modern):
-: <label><input type="checkbox" name="INSTALL_AMSD" value="1" <?=chk($install_amsd==='1')?>> Pull in amsd + cpq* agents (adds the EL8 compat libs bundle)</label>
+: <label><input type="checkbox" name="INSTALL_AMSD" value="1" <?=chk($install_amsd==='1')?>> Enabled</label>
+
+:hpe_mgmt_amsd_help:
+
+</div>
 
 Extra packages:
-: <label><input type="checkbox" name="EX_ssaducli" <?=chk(isset($extras_set['ssaducli']))?>> ssaducli (Smart Storage diagnostics)</label><br>
-  <label><input type="checkbox" name="EX_storcli"  <?=chk(isset($extras_set['storcli']))?>> storcli (LSI/Broadcom RAID)</label><br>
-  <label><input type="checkbox" name="EX_hponcfg"  <?=chk(isset($extras_set['hponcfg']))?>> hponcfg (iLO config from OS)</label>
+: <label><input type="checkbox" name="EX_ssa"       <?=chk(isset($extras_set['ssa']))?>>       <strong>ssa</strong> &mdash; HPE Smart Storage Administrator</label><br>
+  <label><input type="checkbox" name="EX_ssaducli"  <?=chk(isset($extras_set['ssaducli']))?>>  <strong>ssaducli</strong> &mdash; Smart Storage Diagnostic Utility (CLI)</label><br>
+  <label><input type="checkbox" name="EX_storcli"   <?=chk(isset($extras_set['storcli']))?>>   <strong>storcli</strong> &mdash; Broadcom/LSI MegaRAID CLI</label><br>
+  <label><input type="checkbox" name="EX_hponcfg"   <?=chk(isset($extras_set['hponcfg']))?>>   <strong>hponcfg</strong> &mdash; iLO Online Configuration utility</label><br>
+  <label><input type="checkbox" name="EX_fibreutils" <?=chk(isset($extras_set['fibreutils']))?>> <strong>fibreutils</strong> &mdash; Fibre Channel HBA utilities</label><br>
+  <label><input type="checkbox" name="EX_sut"       <?=chk(isset($extras_set['sut']))?>>       <strong>sut</strong> &mdash; Smart Update Tool</label><br>
+  <label><input type="checkbox" name="EX_hpe_emulex_smartsan_enablement_kit" <?=chk(isset($extras_set['hpe-emulex-smartsan-enablement-kit']))?>> <strong>hpe-emulex-smartsan-enablement-kit</strong> &mdash; Emulex FC Smart SAN</label><br>
+  <label><input type="checkbox" name="EX_hpe_qlogic_smartsan_enablement_kit" <?=chk(isset($extras_set['hpe-qlogic-smartsan-enablement-kit']))?>> <strong>hpe-qlogic-smartsan-enablement-kit</strong> &mdash; QLogic FC Smart SAN</label>
+
+:hpe_mgmt_extras_help:
 
 SNMP bridge daemons (`*_rev`):
-: <label><input type="checkbox" name="ENABLE_SNMP_REV" value="1" <?=chk($snmp_rev==='1')?>> Start the *_rev variants (only useful if snmpd runs on the host)</label>
+: <label><input type="checkbox" name="ENABLE_SNMP_REV" value="1" <?=chk($snmp_rev==='1')?>> Enabled</label>
 
-<div class="hpe-mgmt-advanced" markdown="1">
+:hpe_mgmt_snmp_rev_help:
+
+<div class="advanced hpe-src-modern" markdown="1">
 
 HPE SDR (Modern source):
 : distribution
@@ -112,19 +305,36 @@ HPE SDR (Modern source):
     <?php endforeach; ?>
   </select>
 
+</div>
+
+<div class="advanced hpe-src-legacy" markdown="1">
+
 HPE SPP (Legacy SMH source):
 : version
   <select name="SPP_LEGACY_VER">
-    <?php foreach (['2019.03.0','2020.03.0','2021.05.0','2022.03.0'] as $v): ?>
-      <option <?=sel($v === $spp_ver)?>><?=$v?></option>
+    <option value="auto" <?=sel($spp_ver === 'auto')?>>
+      Auto &mdash; <?=htmlspecialchars($hwgen['spp'] ?: '2020.09.0')?>
+      (<?=$hwgen['gen'] ? 'recommended for ' . htmlspecialchars($hwgen['gen']) : 'safe default, no HPE board detected'?>)
+    </option>
+    <?php foreach (['2019.03.0','2020.03.0','2020.09.0','2021.05.0','2021.10.0','2022.03.0'] as $v): ?>
+      <option value="<?=$v?>" <?=sel($v === $spp_ver)?>><?=$v?></option>
     <?php endforeach; ?>
   </select>
-  (2022.03.0 is the last SPP that shipped hpsmh; 2022.08+ dropped it.)
+  <br>
+  <small>
+    Recommendation by server generation:<br>
+    &nbsp;&nbsp;<strong>Gen8</strong> (P420 / P222 / hpsa-era) &rarr; <strong>2020.09.0</strong> — last drop with ssa 4.x that fully detects Gen8 Smart Array.<br>
+    &nbsp;&nbsp;<strong>Gen9</strong> &rarr; 2021.10.0.<br>
+    &nbsp;&nbsp;<strong>Gen10/10+</strong> &rarr; 2022.03.0 — newest SPP with SMH; ssa 5.30 covers newer controllers.<br>
+    &nbsp;&nbsp;2022.08+ dropped SMH entirely (Gen11+ path).
+  </small>
 
 </div>
 
 Verify GPG signatures + per-RPM hash:
-: <label><input type="checkbox" name="VERIFY_GPG" value="1" <?=chk($gpg==='1')?>> Enabled (strongly recommended &mdash; off falls back to HTTPS-only trust)</label>
+: <label><input type="checkbox" name="VERIFY_GPG" value="1" <?=chk($gpg==='1')?>> Enabled (strongly recommended)</label>
+
+:hpe_mgmt_gpg_help:
 
 &nbsp;
 : <input type="submit" name="apply"   value="Apply (install/reinstall)">
@@ -134,10 +344,37 @@ Verify GPG signatures + per-RPM hash:
 Service status:
 : <pre style="font-family:monospace; white-space:pre-wrap;"><?=htmlspecialchars($status)?></pre>
 
-<?php if ($smh_link): ?>
-SMH web UI is up:
-: <a href="<?=htmlspecialchars($smh_link)?>" target="_blank"><?=htmlspecialchars($smh_link)?></a>
-  (log in with the root OS account — SMH authenticates against PAM.)
+<?php if ($web_links): ?>
+Web interfaces:
+: <?php foreach ($web_links as $w): ?>
+  &#8226; <a href="<?=htmlspecialchars($w['url'])?>" target="_blank"><strong><?=htmlspecialchars($w['label'])?></strong></a>
+  &mdash; <?=htmlspecialchars($w['note'])?><br>
+  <?php endforeach; ?>
+<?php endif; ?>
+
+Hardware:
+
+<?php if ($hwgen['name']): ?>
+Server:
+: <strong><?=htmlspecialchars($hwgen['name'])?></strong>
+  <?php if ($hwgen['gen']): ?>
+  &mdash; detected as <strong><?=htmlspecialchars($hwgen['gen'])?></strong>;
+  recommended SPP legacy drop: <strong><?=htmlspecialchars($hwgen['spp'])?></strong>
+  <?php endif; ?>
+<?php endif; ?>
+
+iLO kernel module (`hpilo`):
+: <strong style="color:<?=$module['loaded']?'#2ea44f':'#d73a49'?>"><?=$module['loaded']?'LOADED':'NOT LOADED'?></strong>
+  &mdash; <?=htmlspecialchars($module['detail'])?>
+
+<?php if ($ssacli !== null): ?>
+Smart Array (`ssacli controller all show`):
+: <pre style="font-family:monospace; white-space:pre-wrap;"><?=htmlspecialchars($ssacli)?></pre>
+<?php endif; ?>
+
+<?php if ($hponcfg !== null): ?>
+iLO (`hponcfg -g`):
+: <pre style="font-family:monospace; white-space:pre-wrap;"><?=htmlspecialchars($hponcfg)?></pre>
 <?php endif; ?>
 </form>
 
