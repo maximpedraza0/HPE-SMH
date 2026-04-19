@@ -170,6 +170,40 @@ if [[ -f "${SSA_ROOT}/init.d/hpessad" && ! -e /etc/init.d/hpessad ]]; then
     install -m 0755 "${SSA_ROOT}/init.d/hpessad" /etc/init.d/hpessad
 fi
 
+# hpsmh >= 7.6.7 ships /opt/hp/sslshare/{file,cert}.pem and its %post seeds
+# the host-level /etc/opt/hp/sslshare/ that other HP agents read.  Older
+# hpsmh (7.6.5) doesn't ship the source files, so gate on presence rather
+# than version — harmless skip on 7.6.5.
+if [[ -f /opt/hp/sslshare/file.pem && ! -e /etc/opt/hp/sslshare/file.pem ]]; then
+    log "fixup: seeding /etc/opt/hp/sslshare from /opt/hp/sslshare"
+    mkdir -p /etc/opt/hp/sslshare
+    install -m 0640 -o root -g hpsmh /opt/hp/sslshare/file.pem /etc/opt/hp/sslshare/file.pem 2>/dev/null || true
+    install -m 0640 -o root -g hpsmh /opt/hp/sslshare/cert.pem /etc/opt/hp/sslshare/cert.pem 2>/dev/null || true
+fi
+
+# ilorest's %post symlinks /usr/sbin/ilorest -> /usr/sbin/hprest for
+# back-compat with legacy scripts that still invoke "hprest".
+if [[ -x /usr/sbin/ilorest && ! -e /usr/sbin/hprest ]]; then
+    log "fixup: /usr/sbin/hprest -> /usr/sbin/ilorest"
+    ln -sf /usr/sbin/ilorest /usr/sbin/hprest
+fi
+
+# sut's %post wires three things that rpm2tgz drops:
+#   - /usr/sbin/sut    (PATH alias to /opt/sut/bin/sut)
+#   - /usr/bin/hpsut   (alias used by older HPE tooling)
+#   - /usr/local/sut/sut_recovery.dat (expected by sutd on first start)
+if [[ -x /opt/sut/bin/sut ]]; then
+    [[ -e /usr/sbin/sut ]]  || { log "fixup: /usr/sbin/sut -> /opt/sut/bin/sut"; ln -sf /opt/sut/bin/sut /usr/sbin/sut; }
+    if [[ -x /opt/sut/bin/hpsut && ! -e /usr/bin/hpsut ]]; then
+        log "fixup: /usr/bin/hpsut -> /opt/sut/bin/hpsut"
+        ln -sf /opt/sut/bin/hpsut /usr/bin/hpsut
+    fi
+    if [[ ! -f /usr/local/sut/sut_recovery.dat ]]; then
+        log "fixup: seeding /usr/local/sut/sut_recovery.dat"
+        mkdir -p /usr/local/sut && touch /usr/local/sut/sut_recovery.dat
+    fi
+fi
+
 # hp-snmp-agents needs the "dlmod cmaX" line and a rocommunity entry in
 # snmpd.conf to let SMH query the HP OIDs.  hpsnmpconfig writes those.
 # Run it once (idempotent — it skips if cmaX is already there) when
