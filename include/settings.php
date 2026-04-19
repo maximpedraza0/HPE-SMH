@@ -20,12 +20,28 @@ if (!in_array($stack, ['modern','legacy','disabled'], true)) $stack = 'modern';
 
 $extras = [];
 foreach ([
-    'ssa','ssaducli','storcli','hponcfg','fibreutils','sut',
+    'ssa','ssaducli','storcli','hponcfg','fibreutils','sut','sum','ilorest',
     'hpe-emulex-smartsan-enablement-kit','hpe-qlogic-smartsan-enablement-kit',
+    'mft','hp-ocsbbd','hp-tg3sd',
 ] as $k) {
     /* form key can't contain hyphens nicely; use underscores in name. */
     $formkey = 'EX_' . str_replace('-', '_', $k);
     if (isset($_POST[$formkey])) $extras[] = $k;
+}
+
+/* BOOT_EXTRAS — packages whose daemons should auto-start via rc.hpe-mgmt.
+ * Most daemon-capable extras have both an install (EX_) and a start-at-boot
+ * (BOOT_) checkbox and we only accept the boot bit when the package itself
+ * is selected.  hp-asrd is an exception: it ships bundled with hp-health
+ * (which the Legacy stack installs automatically), so the page only shows
+ * a BOOT_ checkbox for it — no EX_ gate, but we do require Legacy stack. */
+$boot_extras = [];
+foreach (['sut','mft','hp-ocsbbd','hp-tg3sd'] as $k) {
+    $formkey = 'BOOT_' . str_replace('-', '_', $k);
+    if (isset($_POST[$formkey]) && in_array($k, $extras, true)) $boot_extras[] = $k;
+}
+if (isset($_POST['BOOT_hp_asrd']) && $stack === 'legacy') {
+    $boot_extras[] = 'hp-asrd';
 }
 
 $mcp_dist = preg_replace('/[^A-Za-z]/',    '', post('MCP_DIST', 'CentOS'));
@@ -43,6 +59,7 @@ $gpg          = isset($_POST['VERIFY_GPG'])      ? '1' : '0';
 $cfg  = "# HPE Management plugin configuration (written by settings page)\n";
 $cfg .= 'STACK="'           . $stack        . "\"\n";
 $cfg .= 'EXTRAS="'          . implode(' ', $extras) . "\"\n";
+$cfg .= 'BOOT_EXTRAS="'     . implode(' ', $boot_extras) . "\"\n";
 $cfg .= 'MCP_DIST="'        . $mcp_dist     . "\"\n";
 $cfg .= 'MCP_VER="'         . $mcp_ver      . "\"\n";
 $cfg .= 'SPP_LEGACY_VER="'  . $spp_ver      . "\"\n";

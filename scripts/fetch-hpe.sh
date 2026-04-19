@@ -58,6 +58,13 @@ die()  { printf '[fetch-hpe] ERROR: %s\n' "$*" >&2; exit 1; }
 
 HPE_SDR_MCP="https://downloads.linux.hpe.com/SDR/repo/mcp/${MCP_DIST}/${MCP_VER}/x86_64/current"
 HPE_SDR_SPP="https://downloads.linux.hpe.com/SDR/repo/spp/RedHat/8/x86_64/${SPP_LEGACY_VER}"
+# hp-ocsbbd and hp-tg3sd are legacy SAS/NIC status daemons that HPE only
+# ships in the RHEL 7 tree of the same SPP drop.  The binaries are static
+# enough to run on EL8 userland (verified on unRAID 7.2.3).
+HPE_SDR_SPP_RHEL7="https://downloads.linux.hpe.com/SDR/repo/spp/RedHat/7/x86_64/${SPP_LEGACY_VER}"
+# Standalone HPE SDR trees for tools that don't live in MCP or SPP.
+HPE_SDR_ILOREST="https://downloads.linux.hpe.com/SDR/repo/ilorest/RedHat/7/x86_64/current"
+HPE_SDR_SUM="https://downloads.linux.hpe.com/SDR/repo/sum/RedHat/8/x86_64/current"
 
 # AlmaLinux 8 serves as our compat-lib source.  HPE's EL8-built RPMs
 # (hp-ams, hp-snmp-agents, hpsmhd, amsd...) link against libs that
@@ -92,8 +99,15 @@ LEGACY_PKGS=(hpsmh hp-smh-templates hp-health hp-snmp-agents hp-ams)
 COMPAT_PKGS_BASEOS=(
     net-snmp-libs openssl-libs rpm-libs systemd-libs json-c
     audit-libs libdb lua-libs
+    # cmanicd chains: lm_sensors-libs → libsensors.so.4, perl-libs → libperl.so.5.26
+    lm_sensors-libs perl-libs
 )
-COMPAT_PKGS_APPSTREAM=(libidn)
+# net-snmp provides the snmpd daemon that SMH queries for every panel
+# (hmanics, hmastor, hmaserv...) via HP enterprise OIDs; hp-snmp-agents'
+# cma* sub-agents plug into it via AgentX.  Without snmpd SMH shows only
+# SSA (which reads its own socket, not SNMP).
+# net-snmp-agent-libs provides libnetsnmpmibs.so.35 for cmanicd.
+COMPAT_PKGS_APPSTREAM=(libidn net-snmp-agent-libs net-snmp)
 
 # resolve_packages emits one "<repo_base> <pkgname>" pair per line, to be
 # resolved by resolve_latest_rpm into concrete <base>/<fn>.rpm URLs.
@@ -128,10 +142,14 @@ resolve_packages() {
 
     for e in ${extras}; do
         case "${e}" in
-            ssa|ssaducli|hponcfg|fibreutils|sut|amsd) echo "${tier1_repo} ${e}" ;;
+            ssa|ssaducli|hponcfg|fibreutils|sut|amsd|mft) echo "${tier1_repo} ${e}" ;;
             hpe-emulex-smartsan-enablement-kit|hpe-qlogic-smartsan-enablement-kit)
                 echo "${tier1_repo} ${e}" ;;
-            storcli) echo "${HPE_SDR_MCP} ${e}" ;;  # MCP-only
+            storcli) echo "${HPE_SDR_MCP} ${e}" ;;            # MCP-only
+            ilorest) echo "${HPE_SDR_ILOREST} ${e}" ;;
+            sum)     echo "${HPE_SDR_SUM} ${e}" ;;
+            hp-ocsbbd|hp-tg3sd)                               # RHEL 7 tree only
+                     echo "${HPE_SDR_SPP_RHEL7} ${e}" ;;
             diag) warn "HPE Offline Diagnostics is ISO-based; skipping" ;;
             *)    warn "unknown extra: ${e}" ;;
         esac
@@ -201,12 +219,20 @@ repos_for_stack() {
     case "${STACK}" in
         modern) echo "${HPE_SDR_MCP}" ;;
         legacy) echo "${HPE_SDR_SPP}" ;;
-        both)   echo "${HPE_SDR_MCP}"; echo "${HPE_SDR_SPP}" ;;
     esac
     if need_compat_libs; then
         echo "${ALMA_BASEOS}"
         echo "${ALMA_APPSTREAM}"
     fi
+    # Only verify the standalone trees when the user has actually asked
+    # for one of their packages — keeps the metadata refresh minimal.
+    for e in ${EXTRAS}; do
+        case "${e}" in
+            ilorest)           echo "${HPE_SDR_ILOREST}" ;;
+            sum)               echo "${HPE_SDR_SUM}" ;;
+            hp-ocsbbd|hp-tg3sd) echo "${HPE_SDR_SPP_RHEL7}" ;;
+        esac
+    done
 }
 
 refresh_checksum_map() {

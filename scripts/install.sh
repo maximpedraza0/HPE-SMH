@@ -39,8 +39,54 @@ bash "${PLUGIN_DIR}/scripts/bootstrap-rpm.sh"
 log "running bootstrap-gpg"
 bash "${PLUGIN_DIR}/scripts/bootstrap-gpg.sh"
 
+# hpsmh daemons run as hpsmh:hpsmh; the vendor %pre would have created
+# them via useradd/groupadd.  We must do this BEFORE rpm2tgz/installpkg
+# run, so the tarballs' owner-by-name entries resolve to our uid/gid
+# instead of leaving numeric 999 (uid used on the RHEL build host).
+#
+# We pick a fixed uid/gid (881) rather than letting `useradd -r` allocate
+# one from the default system range.  unRAID's Slackware useradd picks
+# from the top of the <1000 range, which lands on 999 — and uid 999 is
+# very commonly used by Docker containers on unRAID (Immich, etc.), so
+# host-side `ps` ends up labelling those containers' processes "hpsmh"
+# through reverse uid lookup.  That's confusing but harmless; 881 is
+# chosen to be well clear of the common Docker default.
+HPSMH_UID=881
+HPSMH_GID=881
+
+if ! getent group hpsmh >/dev/null 2>&1; then
+    log "fixup: creating hpsmh group (gid ${HPSMH_GID})"
+    groupadd -r -g "${HPSMH_GID}" hpsmh 2>/dev/null \
+        || groupadd -r hpsmh 2>/dev/null \
+        || true
+fi
+if ! getent passwd hpsmh >/dev/null 2>&1; then
+    log "fixup: creating hpsmh user (uid ${HPSMH_UID})"
+    useradd -r -u "${HPSMH_UID}" -g hpsmh -s /sbin/nologin \
+        -d /opt/hp/hpsmh hpsmh 2>/dev/null \
+        || useradd -r -g hpsmh -s /sbin/nologin \
+            -d /opt/hp/hpsmh hpsmh 2>/dev/null \
+        || true
+fi
+
 log "running fetch-hpe"
 bash "${PLUGIN_DIR}/scripts/fetch-hpe.sh"
+
+# Re-own anything rpm2tgz unpacked with the RHEL build host's numeric
+# uid/gid 999 (which is what HPE's tarballs bake in).  If the hpsmh
+# user didn't exist at unpack time — or if installpkg used numeric mode
+# — those files stay uid 999, and hpsmhd (running as our 881) can't
+# read its own tree so SMH shows only the plugins owned by root.
+for tree in /opt/hp/hpsmh /opt/hp/hp-snmp-agents /opt/hp/hp-smh-templates /var/spool/compaq; do
+    [[ -d "${tree}" ]] || continue
+    # -uid/-gid 999 matches both "raw numeric 999" and previously misowned
+    # content; harmless if there's nothing to change.
+    if find "${tree}" \( -uid 999 -o -gid 999 \) -print -quit 2>/dev/null | grep -q .; then
+        log "fixup: reclaiming uid/gid 999 under ${tree} -> hpsmh:hpsmh"
+        find "${tree}" -uid 999 -exec chown "${HPSMH_UID}" {} + 2>/dev/null || true
+        find "${tree}" -gid 999 -exec chgrp "${HPSMH_GID}" {} + 2>/dev/null || true
+    fi
+done
 
 # Post-install fixups for things the vendor's %post would have done but
 # rpm2tgz strips out.  Keep these idempotent.
@@ -84,6 +130,56 @@ for svc in hp-health hp-snmp-agents; do
     fi
 done
 
+# Smart Storage Administrator: the `ssa` RPM drops its SMH plugin files
+# under /opt/smartstorageadmin/ssa/{SMH,HTML/SSA1,init.d} and expects the
+# administrator to wire them up manually — there is no %post for it.
+# We reproduce the expected layout:
+#   - /opt/hp/hpsmh/webapp/hpssa.xml       (plugin registration)
+#   - /opt/hp/hpsmh/data/htdocs/HPSSA/     (htdocs tree combining SMH/ + HTML/SSA1/)
+#   - /etc/init.d/hpessad                  (daemon started by rc.hpe-mgmt)
+SSA_ROOT=/opt/smartstorageadmin/ssa
+if [[ -s "${SSA_ROOT}/SMH/hpssa.xml" && -d /opt/hp/hpsmh/webapp ]]; then
+    # Copy (not symlink) — something in hpsmhd's startup can open this
+    # path for write under certain conditions, and following a symlink
+    # would truncate the vendor-owned source file to zero bytes.  Always
+    # refresh the copy so a re-run picks up vendor updates.
+    log "fixup: /opt/hp/hpsmh/webapp/hpssa.xml (copy from ${SSA_ROOT}/SMH)"
+    install -m 0644 "${SSA_ROOT}/SMH/hpssa.xml" /opt/hp/hpsmh/webapp/hpssa.xml
+fi
+if [[ -d "${SSA_ROOT}/SMH" ]]; then
+    htdocs_hpssa=/opt/hp/hpsmh/data/htdocs/HPSSA
+    if [[ ! -d "${htdocs_hpssa}" ]]; then
+        log "fixup: populating ${htdocs_hpssa} from ssa/HTML/SSA1 + ssa/SMH"
+        mkdir -p "${htdocs_hpssa}"
+        # Main UI tree (hpessa.htm entryurl + css/images/js)
+        for f in "${SSA_ROOT}/HTML/SSA1/"*; do
+            [[ -e "${f}" ]] || continue
+            ln -sf "${f}" "${htdocs_hpssa}/$(basename "${f}")"
+        done
+        # chp.htm (chpurl) + ipcelmclient.php (ajax backend)
+        ln -sf "${SSA_ROOT}/SMH/chp.htm"         "${htdocs_hpssa}/chp.htm"
+        ln -sf "${SSA_ROOT}/SMH/ipcelmclient.php" "${htdocs_hpssa}/ipcelmclient.php"
+    fi
+fi
+if [[ -f "${SSA_ROOT}/init.d/hpessad" && ! -e /etc/init.d/hpessad ]]; then
+    log "fixup: /etc/init.d/hpessad -> ${SSA_ROOT}/init.d/hpessad"
+    mkdir -p /etc/init.d
+    # README says copy (not symlink) — the init script chdirs based on its
+    # own location to find $SSA_ROOT; symlink resolution confuses it on some
+    # paths.  Copy with exec bits.
+    install -m 0755 "${SSA_ROOT}/init.d/hpessad" /etc/init.d/hpessad
+fi
+
+# hp-snmp-agents needs the "dlmod cmaX" line and a rocommunity entry in
+# snmpd.conf to let SMH query the HP OIDs.  hpsnmpconfig writes those.
+# Run it once (idempotent — it skips if cmaX is already there) when
+# snmpd's config file is present but unconfigured.
+if [[ -x /sbin/hpsnmpconfig && -f /etc/snmp/snmpd.conf ]] \
+        && ! grep -q "^dlmod cmaX" /etc/snmp/snmpd.conf; then
+    log "fixup: seeding snmpd.conf with dlmod cmaX + public rocommunity"
+    /sbin/hpsnmpconfig --a --rws public --ros public >/dev/null 2>&1 || true
+fi
+
 # hpsmh's init script sources /opt/hp/hpsmh/bin/fixperms, but the RPM ships
 # the file at /opt/hp/hpsmh/support/fixperms — the %post would have placed
 # or symlinked it.
@@ -93,32 +189,17 @@ if [[ -f /opt/hp/hpsmh/support/fixperms && ! -e /opt/hp/hpsmh/bin/fixperms ]]; t
     ln -sf ../support/fixperms /opt/hp/hpsmh/bin/fixperms
 fi
 
-# hpsmh daemons run as hpsmh:hpsmh; the vendor %pre would have created
-# them via useradd/groupadd.
-#
-# We pick a fixed uid/gid (881) rather than letting `useradd -r` allocate
-# one from the default system range.  unRAID's Slackware useradd picks
-# from the top of the <1000 range, which lands on 999 — and uid 999 is
-# very commonly used by Docker containers on unRAID (Immich, etc.), so
-# host-side `ps` ends up labelling those containers' processes "hpsmh"
-# through reverse uid lookup.  That's confusing but harmless; 881 is
-# chosen to be well clear of the common Docker default.
-HPSMH_UID=881
-HPSMH_GID=881
-
-if ! getent group hpsmh >/dev/null 2>&1; then
-    log "fixup: creating hpsmh group (gid ${HPSMH_GID})"
-    groupadd -r -g "${HPSMH_GID}" hpsmh 2>/dev/null \
-        || groupadd -r hpsmh 2>/dev/null \
-        || true
-fi
-if ! getent passwd hpsmh >/dev/null 2>&1; then
-    log "fixup: creating hpsmh user (uid ${HPSMH_UID})"
-    useradd -r -u "${HPSMH_UID}" -g hpsmh -s /sbin/nologin \
-        -d /opt/hp/hpsmh hpsmh 2>/dev/null \
-        || useradd -r -g hpsmh -s /sbin/nologin \
-            -d /opt/hp/hpsmh hpsmh 2>/dev/null \
-        || true
+# csginkgo is shipped under /opt/hp/hp-snmp-agents/webagent/ and the
+# %post of hp-smh-templates copies it into the webapp-data tree where
+# SMH's "Set Threshold" action expects to exec it.  Copy idempotently.
+if [[ -f /opt/hp/hp-snmp-agents/webagent/csginkgo \
+        && -d /opt/hp/hpsmh/data/webapp-data/webagent ]]; then
+    dst=/opt/hp/hpsmh/data/webapp-data/webagent/csginkgo
+    if [[ ! -x "${dst}" ]]; then
+        log "fixup: installing csginkgo into webapp-data/webagent/"
+        install -m 0755 /opt/hp/hp-snmp-agents/webagent/csginkgo "${dst}"
+        chown hpsmh:hpsmh "${dst}" 2>/dev/null || true
+    fi
 fi
 
 # Seed /opt/hp/hpsmh/conf/smhpd.xml with the same defaults the vendor %post

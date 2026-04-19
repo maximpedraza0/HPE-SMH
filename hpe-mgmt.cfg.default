@@ -11,8 +11,18 @@
 STACK="modern"
 
 # Optional extra packages (space-separated). See fetch-hpe.sh resolve_packages.
-#   ssaducli storcli hponcfg diag
+#   ssa ssaducli storcli hponcfg fibreutils sut sum ilorest
+#   hpe-emulex-smartsan-enablement-kit  hpe-qlogic-smartsan-enablement-kit
+#   mft (Mellanox fw tools)  hp-ocsbbd (SAS battery)  hp-tg3sd (Broadcom NIC)
 EXTRAS=""
+
+# Subset of EXTRAS whose daemons should start on boot (rc.hpe-mgmt).
+# Only packages with real background daemons belong here.
+#   sut          -> /opt/sut/scripts/sutd
+#   mft          -> /etc/init.d/mst       (loads the mst kernel module)
+#   hp-ocsbbd    -> /etc/init.d/ocsbbd    (Smart Array cache battery)
+#   hp-tg3sd     -> /etc/init.d/tg3sd     (Broadcom tg3 NIC status)
+BOOT_EXTRAS=""
 
 # HPE SDR distribution tree to pull from. Adjust if CentOS 8 current breaks.
 MCP_DIST="CentOS"

@@ -28,6 +28,7 @@ LOG_DIR="/var/log/${PLUGIN_NAME}"
 
 STACK="modern"
 ENABLE_SNMP_REV="0"
+BOOT_EXTRAS=""
 [[ -f "${CFG}" ]] && . "${CFG}"
 
 mkdir -p "${PID_DIR}" "${LOG_DIR}"
@@ -55,13 +56,14 @@ EOT
 
 # Legacy SMH stack.  hp-snmp-agents.sh transitively starts hp-health's
 # $DEPSCRIPT, but listing hp-health first is idempotent and makes status
-# output clearer.  hpsmhd depends on /etc/init.d/hpsmhd which install.sh
-# symlinks from /opt/hp/hpsmh/support/hpsmhd.redhat.
+# output clearer.  hpsmhd is intentionally NOT in this table — it's
+# appended at the end of daemon_table() so it starts last (and stops
+# first), after every backend daemon is up and ready to serve queries.
 read -r -d '' LEGACY_TABLE <<'EOT' || true
+snmpd	bin	/usr/sbin/snmpd	/etc/sysconfig/snmpd	-f -Lsd -c /etc/snmp/snmpd.conf
 hp-health	init	/etc/init.d/hp-health
 hp-snmp-agents	init	/usr/lib/systemd/scripts/hp-snmp-agents.sh
 hp-ams	bin	/sbin/amsHelper	/etc/sysconfig/hp-ams	-f
-hpsmhd	init	/etc/init.d/hpsmhd
 EOT
 
 daemon_table() {
@@ -73,6 +75,29 @@ daemon_table() {
     esac
     if [[ "${ENABLE_SNMP_REV}" == "1" && "${STACK}" == "modern" ]]; then
         echo "${MODERN_SNMP_REV_TABLE}"
+    fi
+    # hpessad is the IPC backend that ssa's SMH plugin talks to.  ssa is
+    # installed as a utility (both stacks can ship it), so wire hpessad
+    # whenever install.sh has placed the init script.
+    [[ -x /etc/init.d/hpessad ]] && printf 'hpessad\tinit\t/etc/init.d/hpessad\n'
+    # Append opt-in daemons from BOOT_EXTRAS.  Each entry maps to the
+    # init-script or binary HPE ships for that package.
+    for extra in ${BOOT_EXTRAS}; do
+        case "${extra}" in
+            sut)       printf 'sut\tinit\t/opt/sut/scripts/sutd\n' ;;
+            mft)       printf 'mft\tinit\t/etc/init.d/mst\n' ;;
+            hp-ocsbbd) printf 'hp-ocsbbd\tinit\t/etc/init.d/ocsbbd\n' ;;
+            hp-tg3sd)  printf 'hp-tg3sd\tinit\t/etc/init.d/tg3sd\n' ;;
+            # hp-asrd ships with hp-health; script lives under /usr/lib/systemd
+            # (no /etc/init.d symlink by default).
+            hp-asrd)   printf 'hp-asrd\tinit\t/usr/lib/systemd/scripts/hp-asrd.sh\n' ;;
+        esac
+    done
+    # hpsmhd goes last: SMH enumerates component plugins at startup, so
+    # every cma*/hpessad/ssa backend must be up first.  foreach_entry_reverse
+    # will therefore stop hpsmhd first on shutdown.
+    if [[ "${STACK}" == "legacy" ]]; then
+        printf 'hpsmhd\tinit\t/etc/init.d/hpsmhd\n'
     fi
 }
 

@@ -1,4 +1,4 @@
-Menu="OtherSettings"
+Menu="Utilities"
 Title="HPE Management"
 Icon="server"
 Tag="icon-hpe-mgmt"
@@ -59,25 +59,66 @@ $language['_hpe_mgmt_amsd_help'] = <<<MD
 > bundle (~8 MB).
 MD;
 
-$language['_hpe_mgmt_extras_help'] = <<<MD
-> Optional packages installed alongside the stack you selected.
+$language['_hpe_mgmt_extras_network_help'] = <<<MD
+> **Fibre Channel / SAN panels** in SMH plus NIC-vendor utilities.
+> Ethernet data already comes from `hp-snmp-agents` (installed with the
+> legacy stack) via the `cmanicd` daemon.
 >
-> * **ssa** — Graphical RAID configuration for Smart Array controllers;
->   registers as the Storage panel inside the Legacy SMH web UI.
-> * **ssaducli** — CLI that generates the Smart Storage diagnostic bundle
->   HPE support asks for when you open a storage case.
-> * **storcli** — Broadcom/LSI MegaRAID CLI.  Only for non-HPE RAID cards
->   (SAS3416, SAS9361, etc.); Smart Array uses `ssacli`.
-> * **hponcfg** — Reconfigure iLO from the OS (IP, user, certs, reset).
->   Already bundled with the modern and legacy stacks.
 > * **fibreutils** — Emulex / QLogic FC HBA utilities; feeds SMH's
 >   Fibre Channel panel.
-> * **sut** — HPE Smart Update Tool; applies firmware baselines (BIOS,
->   iLO, NIC, HBA) from a Service Pack.  Runs on its own, no SMH panel.
 > * **hpe-emulex-smartsan-enablement-kit** — enables HPE Smart SAN
 >   (auto-zoning + fabric health) for Emulex FC HBAs.
 > * **hpe-qlogic-smartsan-enablement-kit** — same Smart SAN integration
 >   for QLogic FC HBAs.
+> * **mft** — Mellanox Firmware Tools (`flint`, `mlxfwreset`, `mst`
+>   driver).  Only useful if you have Mellanox / NVIDIA ConnectX
+>   adapters.  No SMH panel.  "Start at boot" loads the `mst` kernel
+>   module so the CLI can talk to the cards.
+> * **hp-tg3sd** — Broadcom tg3 NIC status daemon for NetXtreme BCM57xx
+>   cards common on Gen8/Gen9.  Feeds NIC health into the CMA NIC
+>   panel inside SMH.
+MD;
+
+$language['_hpe_mgmt_extras_storage_help'] = <<<MD
+> **Storage panel** in SMH plus RAID / disk diagnostic CLIs.
+>
+> * **ssa** — Graphical RAID configuration for Smart Array controllers;
+>   registers as the Storage panel inside the Legacy SMH web UI.
+> * **ssaducli** — CLI that generates the Smart Storage diagnostic
+>   bundle HPE support asks for when you open a storage case.
+> * **storcli** — Broadcom/LSI MegaRAID CLI.  Only for non-HPE RAID
+>   cards (SAS3416, SAS9361, etc.); Smart Array uses `ssacli`.
+> * **hp-ocsbbd** — Smart Array cache battery monitoring daemon.
+>   Pulls backup-battery health into CMA so SMH's Storage panel can
+>   warn when the flash-backed write cache is running on a failing
+>   or missing battery.
+MD;
+
+$language['_hpe_mgmt_asrd_help'] = <<<MD
+> **Automatic Server Recovery** — hardware watchdog that reboots the
+> server if the kernel panics or hangs for more than the configured
+> timeout.  Uses `/dev/watchdog` from the `hpwdt` driver (iLO2/iLO3/iLO4)
+> or the generic IPMI watchdog as a fallback.
+>
+> Comes bundled with `hp-health` (installed automatically by the Legacy
+> stack).  **Off by default** — enabling this changes how the machine
+> behaves under a crash (it reboots instead of staying down).  When
+> on, a new Automatic Server Recovery panel appears inside SMH.
+MD;
+
+$language['_hpe_mgmt_extras_versioning_help'] = <<<MD
+> **Version Control / firmware management**.  HPE's classic Version
+> Control Agent was retired; its role is now split between these tools.
+>
+> * **sut** — Smart Update Tool (daemon); pulls firmware baselines down
+>   from iLO / SPP and applies them.
+> * **sum** — Smart Update Manager (UI-driven).  Interactive replacement
+>   for the old VCA — inventory, plan and apply firmware updates.  No
+>   SMH panel; runs its own front-end.
+> * **ilorest** — iLO REDFISH client CLI (scriptable automation of
+>   anything the iLO web UI exposes).
+> * **hponcfg** — reconfigure iLO from the OS (IP, user, certs, reset).
+>   Already bundled with the modern and legacy stacks.
 MD;
 
 $language['_hpe_mgmt_snmp_rev_help'] = <<<MD
@@ -238,6 +279,7 @@ $hponcfg   = hpe_mgmt_hponcfg_summary();
     function hpeMgmtToggleStack() {
       var s = $('select[name=STACK]').val();
       $('.hpe-modern-only').toggle(s === 'modern');
+      $('.hpe-legacy-only').toggle(s === 'legacy');
       $('.hpe-src-modern').toggle(s === 'modern');
       $('.hpe-src-legacy').toggle(s === 'legacy');
     }
@@ -272,17 +314,47 @@ Install amsd daemon family (Tier 2 Modern):
 
 </div>
 
-Extra packages:
+<?php
+$boot_set = array_flip(preg_split('/\s+/', trim($current['BOOT_EXTRAS'] ?? '')));
+function boot_chk($boot_set, $k) { return isset($boot_set[$k]) ? 'checked' : ''; }
+?>
+Storage:
 : <label><input type="checkbox" name="EX_ssa"       <?=chk(isset($extras_set['ssa']))?>>       <strong>ssa</strong> &mdash; HPE Smart Storage Administrator</label><br>
   <label><input type="checkbox" name="EX_ssaducli"  <?=chk(isset($extras_set['ssaducli']))?>>  <strong>ssaducli</strong> &mdash; Smart Storage Diagnostic Utility (CLI)</label><br>
   <label><input type="checkbox" name="EX_storcli"   <?=chk(isset($extras_set['storcli']))?>>   <strong>storcli</strong> &mdash; Broadcom/LSI MegaRAID CLI</label><br>
-  <label><input type="checkbox" name="EX_hponcfg"   <?=chk(isset($extras_set['hponcfg']))?>>   <strong>hponcfg</strong> &mdash; iLO Online Configuration utility</label><br>
-  <label><input type="checkbox" name="EX_fibreutils" <?=chk(isset($extras_set['fibreutils']))?>> <strong>fibreutils</strong> &mdash; Fibre Channel HBA utilities</label><br>
-  <label><input type="checkbox" name="EX_sut"       <?=chk(isset($extras_set['sut']))?>>       <strong>sut</strong> &mdash; Smart Update Tool</label><br>
-  <label><input type="checkbox" name="EX_hpe_emulex_smartsan_enablement_kit" <?=chk(isset($extras_set['hpe-emulex-smartsan-enablement-kit']))?>> <strong>hpe-emulex-smartsan-enablement-kit</strong> &mdash; Emulex FC Smart SAN</label><br>
-  <label><input type="checkbox" name="EX_hpe_qlogic_smartsan_enablement_kit" <?=chk(isset($extras_set['hpe-qlogic-smartsan-enablement-kit']))?>> <strong>hpe-qlogic-smartsan-enablement-kit</strong> &mdash; QLogic FC Smart SAN</label>
+  <label><input type="checkbox" name="EX_hp_ocsbbd" <?=chk(isset($extras_set['hp-ocsbbd']))?>> <strong>hp-ocsbbd</strong> &mdash; Smart Array cache-battery daemon</label>
+  &nbsp;&nbsp;<label><input type="checkbox" name="BOOT_hp_ocsbbd" <?=boot_chk($boot_set,'hp-ocsbbd')?>> <em>start at boot</em></label>
 
-:hpe_mgmt_extras_help:
+:hpe_mgmt_extras_storage_help:
+
+Network &amp; Fibre Channel:
+: <label><input type="checkbox" name="EX_fibreutils" <?=chk(isset($extras_set['fibreutils']))?>> <strong>fibreutils</strong> &mdash; Fibre Channel HBA utilities</label><br>
+  <label><input type="checkbox" name="EX_hpe_emulex_smartsan_enablement_kit" <?=chk(isset($extras_set['hpe-emulex-smartsan-enablement-kit']))?>> <strong>hpe-emulex-smartsan-enablement-kit</strong> &mdash; Emulex FC Smart SAN</label><br>
+  <label><input type="checkbox" name="EX_hpe_qlogic_smartsan_enablement_kit" <?=chk(isset($extras_set['hpe-qlogic-smartsan-enablement-kit']))?>> <strong>hpe-qlogic-smartsan-enablement-kit</strong> &mdash; QLogic FC Smart SAN</label><br>
+  <label><input type="checkbox" name="EX_mft"      <?=chk(isset($extras_set['mft']))?>>       <strong>mft</strong> &mdash; Mellanox Firmware Tools</label>
+  &nbsp;&nbsp;<label><input type="checkbox" name="BOOT_mft" <?=boot_chk($boot_set,'mft')?>> <em>start at boot</em></label><br>
+  <label><input type="checkbox" name="EX_hp_tg3sd" <?=chk(isset($extras_set['hp-tg3sd']))?>> <strong>hp-tg3sd</strong> &mdash; Broadcom tg3 NIC status daemon</label>
+  &nbsp;&nbsp;<label><input type="checkbox" name="BOOT_hp_tg3sd" <?=boot_chk($boot_set,'hp-tg3sd')?>> <em>start at boot</em></label>
+
+:hpe_mgmt_extras_network_help:
+
+Version control &amp; firmware management:
+: <label><input type="checkbox" name="EX_sut"     <?=chk(isset($extras_set['sut']))?>>     <strong>sut</strong> &mdash; Smart Update Tool (daemon)</label>
+  &nbsp;&nbsp;<label><input type="checkbox" name="BOOT_sut" <?=boot_chk($boot_set,'sut')?>> <em>start at boot</em></label><br>
+  <label><input type="checkbox" name="EX_sum"     <?=chk(isset($extras_set['sum']))?>>     <strong>sum</strong> &mdash; Smart Update Manager (UI)</label><br>
+  <label><input type="checkbox" name="EX_ilorest" <?=chk(isset($extras_set['ilorest']))?>> <strong>ilorest</strong> &mdash; iLO REDFISH client CLI</label><br>
+  <label><input type="checkbox" name="EX_hponcfg" <?=chk(isset($extras_set['hponcfg']))?>> <strong>hponcfg</strong> &mdash; iLO Online Configuration utility</label>
+
+:hpe_mgmt_extras_versioning_help:
+
+<div class="hpe-legacy-only" markdown="1">
+
+System recovery:
+: <label><input type="checkbox" name="BOOT_hp_asrd" <?=boot_chk($boot_set,'hp-asrd')?>> <strong>hp-asrd</strong> &mdash; Automatic Server Recovery watchdog (start at boot)</label>
+
+:hpe_mgmt_asrd_help:
+
+</div>
 
 SNMP bridge daemons (`*_rev`):
 : <label><input type="checkbox" name="ENABLE_SNMP_REV" value="1" <?=chk($snmp_rev==='1')?>> Enabled</label>

@@ -147,9 +147,18 @@ daemon() {
     fi
     local pid=$!
     [ -n "${pidfile}" ] && echo "${pid}" > "${pidfile}"
-    disown 2>/dev/null || true
     sleep 0.2
-    if kill -0 "${pid}" 2>/dev/null; then success; return 0; fi
+    if kill -0 "${pid}" 2>/dev/null; then
+        # Still running — daemon stays in foreground (e.g. snmpd -f).
+        disown 2>/dev/null || true
+        success; return 0
+    fi
+    # Already exited: this is the common "self-daemonize" pattern where the
+    # launcher forks a real daemon and the parent returns 0.  Reap its exit
+    # code and treat 0 as success.
+    wait "${pid}" 2>/dev/null
+    local rc=$?
+    if [ "${rc}" -eq 0 ]; then success; return 0; fi
     failure; return 1
 }
 
