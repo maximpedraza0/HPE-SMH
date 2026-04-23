@@ -209,6 +209,14 @@ status_init() {
         printf '  %-14s  not installed\n' "${name}"
         return
     fi
+    # Vendor workaround: /etc/init.d/hpessad uses `pidof ssa` for its status
+    # check, but the long-lived daemon actually forks as `ssaresponder` and
+    # the init script ends up reporting "stopped" on a perfectly healthy
+    # process. Detect the real binary ourselves before consulting the script.
+    if [[ "${name}" == "hpessad" ]] && pgrep -x ssaresponder >/dev/null 2>&1; then
+        printf '  %-14s  running (init)\n' "${name}"
+        return
+    fi
     if "${script}" status >/dev/null 2>&1; then
         printf '  %-14s  running (init)\n' "${name}"
     else
