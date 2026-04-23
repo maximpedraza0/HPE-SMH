@@ -4,7 +4,7 @@
 <!ENTITY author    "Max Pedraza">
 <!ENTITY version   "2026.04.18">
 <!ENTITY launch    "Settings/hpe-mgmt">
-<!ENTITY gitURL    "https://github.com/mpedraza/HPE-SMH">
+<!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
 <!ENTITY plugdir   "/usr/local/emhttp/plugins/&name;">
 <!ENTITY cfgdir    "/boot/config/plugins/&name;">
