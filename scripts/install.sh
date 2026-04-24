@@ -23,6 +23,19 @@ log() { printf '[install] %s\n' "$*"; }
 [[ -d "${PLUGIN_DIR}/scripts" ]] || { echo "plugin tree missing at ${PLUGIN_DIR}"; exit 1; }
 [[ -d "${CFG_DIR}" ]] || mkdir -p "${CFG_DIR}"
 
+# Replace the GitHub-facing README with a compact unRAID-facing one.
+# /Plugins renders README.md as the plugin's inline description (see
+# dynamix.plugin.manager/include/ShowPlugins.php):
+#   file_exists → Markdown(contents)  else  Markdown("**{$name}**")
+# The full repo README has a markdown H1 that renders as oversized
+# heading on that row; every other plugin (gpustat, compose.manager,
+# NerdTools…) follows the `**Name**\n\nShort sentence` convention.
+cat > "${PLUGIN_DIR}/README.md" <<'UNRAID_README'
+**HPE Management**
+
+Plugin for HPE ProLiant servers on unRAID. See [GitHub](https://github.com/maximpedraza0/HPE-SMH) for documentation.
+UNRAID_README
+
 # Stamp default config if absent.
 if [[ ! -f "${CFG_DIR}/${PLUGIN_NAME}.cfg" ]]; then
     install -m 0644 "${PLUGIN_DIR}/${PLUGIN_NAME}.cfg.default" \
