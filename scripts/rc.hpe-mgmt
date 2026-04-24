@@ -277,8 +277,48 @@ foreach_entry_reverse() {
     done
 }
 
+# -----------------------------------------------------------------------
+# config drop-ins
+#
+# unRAID wipes /etc on every boot, so site-specific snmpd tweaks (extra
+# rocommunities, sysLocation, ACLs for docker subnets…) would be lost
+# unless the plugin re-applies them.  We keep the plugin-generated conf
+# as an immutable base snapshot on the flash, and concatenate any user
+# files dropped into snmpd.d/ into /etc/snmp/snmpd.conf before daemons
+# start.  HUP snmpd if the resulting file actually changed.
+# -----------------------------------------------------------------------
+apply_snmpd_config() {
+    local cfg_dir="/boot/config/plugins/${PLUGIN_NAME}"
+    local base="${cfg_dir}/snmpd.conf.base"
+    local dropdir="${cfg_dir}/snmpd.d"
+    local target="/etc/snmp/snmpd.conf"
+
+    [[ -f "${base}" ]] || return 0
+    mkdir -p "${dropdir}"
+
+    local tmp; tmp="$(mktemp)"
+    cat "${base}" > "${tmp}"
+    local count=0
+    for conf in "${dropdir}"/*.conf; do
+        [[ -r "${conf}" ]] || continue
+        printf '\n# --- hpe-mgmt drop-in: %s ---\n' "$(basename "${conf}")" >> "${tmp}"
+        cat "${conf}" >> "${tmp}"
+        count=$((count + 1))
+    done
+
+    if ! cmp -s "${tmp}" "${target}" 2>/dev/null; then
+        install -m 0644 "${tmp}" "${target}"
+        echo "[rc.hpe-mgmt] snmpd.conf regenerated (base + ${count} drop-in$([[ ${count} -eq 1 ]] || echo s))"
+        if pgrep -x snmpd >/dev/null 2>&1; then
+            kill -HUP "$(pgrep -x snmpd)" 2>/dev/null || true
+        fi
+    fi
+    rm -f "${tmp}"
+}
+
 cmd_start() {
     echo "[rc.hpe-mgmt] starting (stack=${STACK}, snmp_rev=${ENABLE_SNMP_REV})"
+    apply_snmpd_config
     foreach_entry dispatch_start
 }
 

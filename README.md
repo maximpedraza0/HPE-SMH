@@ -133,6 +133,42 @@ The Settings page (`Settings → hpe-mgmt`) edits
 
 Changes take effect on the next `rc.hpe-mgmt restart` (or reboot).
 
+### Config drop-ins (snmpd)
+
+unRAID wipes `/etc` on every boot, so hand-edits to `/etc/snmp/snmpd.conf`
+do not survive. The plugin keeps an immutable snapshot of the conf it
+generated on first install at:
+
+```
+/boot/config/plugins/hpe-mgmt/snmpd.conf.base
+```
+
+…and on every `rc.hpe-mgmt start` (boot + restart) concatenates any files
+placed in:
+
+```
+/boot/config/plugins/hpe-mgmt/snmpd.d/*.conf
+```
+
+…into `/etc/snmp/snmpd.conf`, then `HUP`s `snmpd` if the result changed.
+
+Use it for site-specific tweaks that should outlive plugin
+reinstalls/updates. Example — expose SNMP to a LibreNMS collector on
+another host and tag the server:
+
+```
+# /boot/config/plugins/hpe-mgmt/snmpd.d/10-librenms.conf
+sysLocation    Home rack
+sysContact     admin@example.com
+view   lnms   included  .1
+rocommunity  mycommunity  192.168.27.0/24  -V lnms
+rocommunity  mycommunity  172.16.0.0/12    -V lnms
+```
+
+Files are concatenated in alphabetical order (same convention as systemd
+drop-ins). If you need to regenerate the base (e.g. after a manual
+`hpsnmpconfig` run), delete `snmpd.conf.base` and reinstall the plugin.
+
 ## Service management
 
 Everything runs under `/etc/rc.d/rc.hpe-mgmt`:

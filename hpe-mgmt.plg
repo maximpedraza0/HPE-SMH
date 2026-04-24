@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.18">
+<!ENTITY version   "2026.04.24">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -21,6 +21,12 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.24
+- snmpd config drop-ins: files in /boot/config/plugins/hpe-mgmt/snmpd.d/*.conf
+  are concatenated onto the plugin-generated base on every rc.hpe-mgmt start,
+  so site-specific rocommunities / ACLs / sysLocation survive reboots and
+  reinstalls without touching /boot/config/go.
+
 ### 2026.04.18
 - First skeleton: modern stack (amsd + ssacli + hponcfg) and legacy SMH selector.
 - Bundled Slackware rpm2targz; bootstraps rpm + popt from mirror on first run.

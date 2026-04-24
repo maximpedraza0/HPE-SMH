@@ -214,6 +214,18 @@ if [[ -x /sbin/hpsnmpconfig && -f /etc/snmp/snmpd.conf ]] \
     /sbin/hpsnmpconfig --a --rws public --ros public >/dev/null 2>&1 || true
 fi
 
+# Snapshot the plugin-generated snmpd.conf as the "base" for the drop-in
+# system.  At boot, rc.hpe-mgmt concatenates base + /boot/config/plugins/
+# hpe-mgmt/snmpd.d/*.conf into /etc/snmp/snmpd.conf, so user site config
+# survives plugin reinstalls and unRAID reboots (which wipe /etc).
+# Only snapshot once; a subsequent install must not clobber a working base
+# if the user has customized it through the plugin's own mechanisms.
+if [[ -f /etc/snmp/snmpd.conf && ! -f "${CFG_DIR}/snmpd.conf.base" ]]; then
+    install -m 0644 /etc/snmp/snmpd.conf "${CFG_DIR}/snmpd.conf.base"
+    log "snapshot: ${CFG_DIR}/snmpd.conf.base"
+fi
+mkdir -p "${CFG_DIR}/snmpd.d"
+
 # hpsmh's init script sources /opt/hp/hpsmh/bin/fixperms, but the RPM ships
 # the file at /opt/hp/hpsmh/support/fixperms — the %post would have placed
 # or symlinked it.
