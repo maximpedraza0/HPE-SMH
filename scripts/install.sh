@@ -23,6 +23,19 @@ log() { printf '[install] %s\n' "$*"; }
 [[ -d "${PLUGIN_DIR}/scripts" ]] || { echo "plugin tree missing at ${PLUGIN_DIR}"; exit 1; }
 [[ -d "${CFG_DIR}" ]] || mkdir -p "${CFG_DIR}"
 
+# Replace the GitHub-facing README with a compact unRAID-facing one.
+# /Plugins renders README.md as the plugin's inline description (see
+# dynamix.plugin.manager/include/ShowPlugins.php):
+#   file_exists → Markdown(contents)  else  Markdown("**{$name}**")
+# The full repo README has a markdown H1 that renders as oversized
+# heading on that row; every other plugin (gpustat, compose.manager,
+# NerdTools…) follows the `**Name**\n\nShort sentence` convention.
+cat > "${PLUGIN_DIR}/README.md" <<'UNRAID_README'
+**HPE Management**
+
+Plugin for HPE ProLiant servers on unRAID. See [GitHub](https://github.com/maximpedraza0/HPE-SMH) for documentation.
+UNRAID_README
+
 # Stamp default config if absent.
 if [[ ! -f "${CFG_DIR}/${PLUGIN_NAME}.cfg" ]]; then
     install -m 0644 "${PLUGIN_DIR}/${PLUGIN_NAME}.cfg.default" \
@@ -213,6 +226,18 @@ if [[ -x /sbin/hpsnmpconfig && -f /etc/snmp/snmpd.conf ]] \
     log "fixup: seeding snmpd.conf with dlmod cmaX + public rocommunity"
     /sbin/hpsnmpconfig --a --rws public --ros public >/dev/null 2>&1 || true
 fi
+
+# Snapshot the plugin-generated snmpd.conf as the "base" for the drop-in
+# system.  At boot, rc.hpe-mgmt concatenates base + /boot/config/plugins/
+# hpe-mgmt/snmpd.d/*.conf into /etc/snmp/snmpd.conf, so user site config
+# survives plugin reinstalls and unRAID reboots (which wipe /etc).
+# Only snapshot once; a subsequent install must not clobber a working base
+# if the user has customized it through the plugin's own mechanisms.
+if [[ -f /etc/snmp/snmpd.conf && ! -f "${CFG_DIR}/snmpd.conf.base" ]]; then
+    install -m 0644 /etc/snmp/snmpd.conf "${CFG_DIR}/snmpd.conf.base"
+    log "snapshot: ${CFG_DIR}/snmpd.conf.base"
+fi
+mkdir -p "${CFG_DIR}/snmpd.d"
 
 # hpsmh's init script sources /opt/hp/hpsmh/bin/fixperms, but the RPM ships
 # the file at /opt/hp/hpsmh/support/fixperms — the %post would have placed
