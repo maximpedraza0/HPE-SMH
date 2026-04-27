@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.24">
+<!ENTITY version   "2026.04.27">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -21,6 +21,13 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.27
+- vendor-config overrides: files in /boot/config/plugins/hpe-mgmt/overrides/
+  are symlinked over their matching absolute path on every rc.hpe-mgmt start,
+  with the vendor original stashed at <path>.hpe-mgmt-orig on first override.
+  Lets users persist edits to smhpd.xml, cma.conf, hp-ams sysconfig, etc.
+  across reboots and reinstalls.
+
 ### 2026.04.24
 - snmpd config drop-ins: files in /boot/config/plugins/hpe-mgmt/snmpd.d/*.conf
   are concatenated onto the plugin-generated base on every rc.hpe-mgmt start,

@@ -169,6 +169,53 @@ Files are concatenated in alphabetical order (same convention as systemd
 drop-ins). If you need to regenerate the base (e.g. after a manual
 `hpsnmpconfig` run), delete `snmpd.conf.base` and reinstall the plugin.
 
+### Vendor-config overrides
+
+For everything else — vendor configs that the RPM installs into `/etc`
+or `/opt/hp` and rewrites on every boot — use the override tree:
+
+```
+/boot/config/plugins/hpe-mgmt/overrides/<absolute-path>
+```
+
+On every `rc.hpe-mgmt start` the plugin walks `overrides/`, symlinks
+each file over its matching system path, and stashes the vendor original
+at `<path>.hpe-mgmt-orig` the first time. Edits in USB take effect
+immediately — no reboot needed if you `kill -HUP` or restart the
+relevant daemon.
+
+Useful targets (Tier B configs the RPMs regenerate at install):
+
+| Path | Package | What it controls |
+|---|---|---|
+| `/etc/sysconfig/hp-ams` | hp-ams | hp-ams daemon `OPTIONS` |
+| `/etc/sysconfig/snmpd` | net-snmp | snmpd command-line `OPTIONS` |
+| `/etc/snmp/snmptrapd.conf` | net-snmp | trap receiver |
+| `/etc/hp-snmp-agents.conf` | hp-snmp-agents | top-level cma\* tunables |
+| `/opt/hp/hp-snmp-agents/cma.conf` | hp-snmp-agents | which sub-agents to enable |
+| `/opt/hp/hp-snmp-agents/server/etc/cma{healthd,perfd,…}` | hp-snmp-agents | per-sub-agent env vars |
+| `/opt/hp/hpsmh/conf/smhpd.xml` | hpsmh | SMH admin/operator/user groups, anonymous-access, trustmode |
+| `/opt/hp/hpsmh/conf/timeout.conf` | hpsmh | SMH session timeouts |
+| `/opt/hp/hpsmh/conf/userlists.txt` | hpsmh | local user lists |
+| `/opt/hp/hpsmh/conf/extra/httpd-*.conf` | hpsmh | Apache tweaks (cipher list, listen ports) |
+
+Example — restrict the SMH web UI to a single admin group:
+
+```
+mkdir -p /boot/config/plugins/hpe-mgmt/overrides/opt/hp/hpsmh/conf
+cp /opt/hp/hpsmh/conf/smhpd.xml \
+   /boot/config/plugins/hpe-mgmt/overrides/opt/hp/hpsmh/conf/smhpd.xml
+# edit the copy
+/etc/rc.d/rc.hpe-mgmt restart
+```
+
+To roll back an override: remove the file from `overrides/`, rename the
+`.hpe-mgmt-orig` backup back into place, and restart.
+
+`overrides/` and `snmpd.d/` are complementary. Use `snmpd.d/` for
+**adding** lines to `/etc/snmp/snmpd.conf` (concat semantics); use
+`overrides/` to **replace** any other vendor config wholesale.
+
 ## Service management
 
 Everything runs under `/etc/rc.d/rc.hpe-mgmt`:

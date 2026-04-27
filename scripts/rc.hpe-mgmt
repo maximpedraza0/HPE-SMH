@@ -22,7 +22,8 @@
 set -u
 
 PLUGIN_NAME="hpe-mgmt"
-CFG="/boot/config/plugins/${PLUGIN_NAME}/${PLUGIN_NAME}.cfg"
+CFG_DIR="/boot/config/plugins/${PLUGIN_NAME}"
+CFG="${CFG_DIR}/${PLUGIN_NAME}.cfg"
 PID_DIR="/var/run/${PLUGIN_NAME}"
 LOG_DIR="/var/log/${PLUGIN_NAME}"
 
@@ -288,9 +289,8 @@ foreach_entry_reverse() {
 # start.  HUP snmpd if the resulting file actually changed.
 # -----------------------------------------------------------------------
 apply_snmpd_config() {
-    local cfg_dir="/boot/config/plugins/${PLUGIN_NAME}"
-    local base="${cfg_dir}/snmpd.conf.base"
-    local dropdir="${cfg_dir}/snmpd.d"
+    local base="${CFG_DIR}/snmpd.conf.base"
+    local dropdir="${CFG_DIR}/snmpd.d"
     local target="/etc/snmp/snmpd.conf"
 
     [[ -f "${base}" ]] || return 0
@@ -316,9 +316,57 @@ apply_snmpd_config() {
     rm -f "${tmp}"
 }
 
+# -----------------------------------------------------------------------
+# Generic vendor-config overrides
+#
+# Files placed under /boot/config/plugins/hpe-mgmt/overrides/<rel/path>
+# are symlinked over /<rel/path> on every start.  This lets users persist
+# edits to vendor RPM configs (smhpd.xml, cma.conf, hp-ams sysconfig…)
+# across reboots and reinstalls — the RPM keeps shipping its file at
+# install time, then we point the live path at the user's USB copy.
+#
+# The first time we override a real file, the vendor original is stashed
+# at <path>.hpe-mgmt-orig so the user can roll back by removing the
+# symlink (and the override file) and renaming the .orig back.
+#
+# Snmpd config is intentionally NOT handled here — it has its own
+# concat-based drop-in system in apply_snmpd_config(), which preserves
+# the plugin-generated cmaX/hpsnmpconfig base.
+# -----------------------------------------------------------------------
+apply_overrides() {
+    local override_dir="${CFG_DIR}/overrides"
+    [[ -d "${override_dir}" ]] || return 0
+
+    local count=0
+    while IFS= read -r src; do
+        local rel="${src#${override_dir}/}"
+        local dst="/${rel}"
+
+        # Already pointing at this exact source — nothing to do.
+        if [[ -L "${dst}" && "$(readlink "${dst}")" == "${src}" ]]; then
+            continue
+        fi
+
+        # First time overriding a real vendor file: stash the original.
+        # Done once; subsequent runs see the symlink and skip the backup.
+        if [[ -f "${dst}" && ! -L "${dst}" && ! -e "${dst}.hpe-mgmt-orig" ]]; then
+            cp -p "${dst}" "${dst}.hpe-mgmt-orig"
+        fi
+
+        mkdir -p "$(dirname "${dst}")"
+        ln -sf "${src}" "${dst}"
+        count=$((count + 1))
+    done < <(find "${override_dir}" -type f 2>/dev/null)
+
+    if (( count > 0 )); then
+        echo "[rc.hpe-mgmt] vendor-config overrides applied: ${count} file$([[ ${count} -eq 1 ]] || echo s)"
+    fi
+}
+
 cmd_start() {
     echo "[rc.hpe-mgmt] starting (stack=${STACK}, snmp_rev=${ENABLE_SNMP_REV})"
     apply_snmpd_config
+    apply_overrides
     foreach_entry dispatch_start
 }
 
