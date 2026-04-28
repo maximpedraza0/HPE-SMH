@@ -239,6 +239,11 @@ if [[ -f /etc/snmp/snmpd.conf && ! -f "${CFG_DIR}/snmpd.conf.base" ]]; then
 fi
 mkdir -p "${CFG_DIR}/snmpd.d"
 
+# Vendor-config overrides directory (see rc.hpe-mgmt:apply_overrides).
+# Files placed here under their absolute target path get symlinked over
+# the matching system path on every rc.hpe-mgmt start.
+mkdir -p "${CFG_DIR}/overrides"
+
 # hpsmh's init script sources /opt/hp/hpsmh/bin/fixperms, but the RPM ships
 # the file at /opt/hp/hpsmh/support/fixperms — the %post would have placed
 # or symlinked it.
