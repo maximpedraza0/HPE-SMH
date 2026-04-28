@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.28d">
+<!ENTITY version   "2026.04.28e">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -21,6 +21,13 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.28e
+- fix(fetch): tolerate cold-boot DNS race so the plugin doesn't get
+  moved to plugins-error/ when unRAID applies it before the network is
+  up.  fetch-hpe.sh now waits up to 60s for downloads.linux.hpe.com to
+  resolve before any HTTP fetch, and refresh_checksum_map retries the
+  verify-repo invocation up to 5×5s if it fails.
+
 ### 2026.04.28d
 - fix(rc): recover from hpessad init.d false-positive at boot.
   /usr/sbin/ssa -start can self-abort with "Only one instance ... can
