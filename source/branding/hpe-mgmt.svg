@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  HPE-SMH plugin icon.
+
+  Monochrome 1U-server silhouette set inside HPE's signature green
+  accent square (#01A982).  The square is the brand-recognisable
+  shape; everything inside (server outline, drive bays, status LED)
+  is intentionally generic so we don't appropriate the HPE wordmark
+  itself.
+
+  Source-of-truth.  Rasterise to PNG via:
+    rsvg-convert -h 64 hpe-mgmt.svg > icons/hpe-mgmt.png
+  or generate directly with source/branding/render-icon.py
+  (pure-stdlib, no rasteriser dependency).
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 64 64" width="64" height="64">
+
+  <!-- HPE-style green accent: rounded square, full canvas -->
+  <rect x="0" y="0" width="64" height="64" rx="6" ry="6"
+        fill="#01A982"/>
+
+  <!-- 1U server silhouette (white interior over the green) -->
+  <rect x="8" y="24" width="48" height="16" rx="1.5" ry="1.5"
+        fill="#ffffff"/>
+
+  <!-- Status LED on the front panel: tiny green square, echoes the brand -->
+  <rect x="11" y="29" width="4" height="6" fill="#01A982"/>
+
+  <!-- Drive bays: 6 vertical separators across the right of the front panel -->
+  <g stroke="#1f1f1f" stroke-width="1.4">
+    <line x1="22" y1="26" x2="22" y2="38"/>
+    <line x1="28" y1="26" x2="28" y2="38"/>
+    <line x1="34" y1="26" x2="34" y2="38"/>
+    <line x1="40" y1="26" x2="40" y2="38"/>
+    <line x1="46" y1="26" x2="46" y2="38"/>
+    <line x1="52" y1="26" x2="52" y2="38"/>
+  </g>
+
+  <!-- Bottom rack-ear hint (subtle) -->
+  <rect x="8" y="44" width="48" height="2" fill="#017a5d"/>
+</svg>
