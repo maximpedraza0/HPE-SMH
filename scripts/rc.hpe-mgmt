@@ -162,6 +162,24 @@ start_init() {
     # Run the start, capture everything to the log, and let the user see
     # real state via `rc.hpe-mgmt status`.
     "${script}" start >>"${LOG_DIR}/${name}.log" 2>&1 || true
+
+    # hpessad-specific recovery: /usr/sbin/ssa -start can self-abort
+    # with "Only one instance of the Smart Storage Administrator daemon
+    # can be active at one time" against a stale lock left by a previous
+    # boot.  The vendor init script's `daemon` shim still returns OK in
+    # that case, so neither status nor exit code reveal anything wrong —
+    # but ssaresponder is not running and SSA disappears from the SMH
+    # UI's Storage box.  Detect a missing ssaresponder and force a
+    # stop+start cycle once to clear the lock.
+    if [[ "${name}" == "hpessad" ]]; then
+        sleep 1
+        if ! pgrep -x ssaresponder >/dev/null 2>&1; then
+            printf '  %-14s ssaresponder not up — recycling stale lock\n' "${name}"
+            /usr/sbin/ssa -stop >>"${LOG_DIR}/${name}.log" 2>&1 || true
+            sleep 1
+            "${script}" start  >>"${LOG_DIR}/${name}.log" 2>&1 || true
+        fi
+    fi
 }
 
 stop_bin() {
