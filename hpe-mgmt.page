@@ -1,6 +1,6 @@
 Menu="Utilities"
 Title="HPE Management"
-Icon="server"
+Icon="hpe-mgmt.png"
 Tag="icon-hpe-mgmt"
 ---
 <?PHP

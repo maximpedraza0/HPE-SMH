@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.28e">
+<!ENTITY version   "2026.04.28f">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -21,6 +21,15 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.28f
+- feat: plugin icon. Replace generic Font Awesome "server" with a
+  monochrome 1U-server-on-HPE-green-backdrop logo (SVG source in
+  source/branding/, raster output in icons/hpe-mgmt.png).  The green
+  block (#01A982) is the brand-recognisable element; the server
+  silhouette inside is intentionally generic so we don't appropriate
+  the HPE wordmark itself.  Pure-stdlib renderer (render-icon.py)
+  regenerates PNGs at any size without needing librsvg/imagemagick.
+
 ### 2026.04.28e
 - fix(fetch): tolerate cold-boot DNS race so the plugin doesn't get
   moved to plugins-error/ when unRAID applies it before the network is
