@@ -235,15 +235,66 @@ repos_for_stack() {
     done
 }
 
+# Wait for the network/DNS to settle before any HTTPS fetch.
+#
+# unRAID's plugin-manager runs install scripts very early in boot, and on
+# a cold start DNS may not yet be resolving (the LAN router is still
+# negotiating DHCP, or systemd-resolved-equivalent hasn't read
+# /etc/resolv.conf).  A failing curl in verify-repo.sh / install_one_rpm
+# would exit non-zero, the .plg INLINE script returns 1, and unRAID
+# moves /boot/config/plugins/hpe-mgmt.plg into plugins-error/ — at which
+# point the plugin silently disappears until the user notices.
+#
+# Probe a known-stable HPE host with `getent hosts` (which uses nsswitch
+# and respects /etc/hosts caching) up to ~60s before giving up.  Don't
+# die on timeout — refresh_checksum_map will do its own retries and may
+# still succeed if connectivity comes up shortly after.
+wait_for_dns() {
+    local target="downloads.linux.hpe.com"
+    local waited=0
+    local interval=2
+    local max_wait=60
+    while (( waited < max_wait )); do
+        if getent hosts "${target}" >/dev/null 2>&1; then
+            (( waited > 0 )) && log "DNS for ${target} ready after ${waited}s"
+            return 0
+        fi
+        sleep "${interval}"
+        waited=$(( waited + interval ))
+    done
+    warn "DNS for ${target} not resolving after ${max_wait}s; proceeding with retries"
+    return 1
+}
+
 refresh_checksum_map() {
     [[ "${VERIFY_GPG}" == "1" ]] || return 0
     log "refreshing repo metadata + signatures"
     local verifier="${SCRIPT_DIR}/verify-repo.sh"
     local tmp; tmp="$(mktemp)"
-    if ! repos_for_stack | bash "${verifier}" > "${tmp}"; then
+
+    # Retry the metadata fetch a few times.  On a cold boot the first
+    # attempt can hit DNS that just barely came up, or a router that's
+    # still issuing the DHCP lease, and verify-repo.sh exits non-zero.
+    # A short retry loop covers both cases without prolonging successful
+    # boots noticeably.
+    local attempt=1
+    local max_attempts=5
+    local backoff=5
+    while (( attempt <= max_attempts )); do
+        if repos_for_stack | bash "${verifier}" > "${tmp}" 2>/dev/null; then
+            break
+        fi
+        if (( attempt < max_attempts )); then
+            warn "verify-repo failed (attempt ${attempt}/${max_attempts}); retrying in ${backoff}s"
+            sleep "${backoff}"
+        fi
+        attempt=$(( attempt + 1 ))
+    done
+    if [[ ! -s "${tmp}" ]]; then
         rm -f "${tmp}"
-        die "verify-repo.sh failed; refusing to install anything"
+        die "verify-repo.sh failed after ${max_attempts} attempts; refusing to install anything"
     fi
+
     local url type hash fn
     while read -r url type hash; do
         [[ -n "${url}" && -n "${type}" && -n "${hash}" ]] || continue
@@ -328,6 +379,7 @@ main() {
         return 0
     fi
 
+    wait_for_dns
     refresh_checksum_map
 
     mapfile -t URLS < <(resolve_urls "${STACK}" "${EXTRAS}")
