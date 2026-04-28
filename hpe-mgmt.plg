@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.28j">
+<!ENTITY version   "2026.04.28k">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -22,6 +22,13 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.28k
+- icon redesign: drop the wordmark / Element-bar mock and ship the
+  user-supplied SVG instead — five stacked 1U-server units with
+  per-unit status LEDs and an HPE-green ECG / heartbeat trace
+  crossing the centre.  Rasterised with rsvg-convert
+  (librsvg2-bin); render-icon.py is now a thin wrapper around it.
+
 ### 2026.04.28j
 - icon: tone the wordmark down from near-black to a mid neutral
   gray (#5a6066), matching the perceived weight of stock unRAID
