@@ -1,34 +1,29 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!--
-  HPE-SMH plugin icon — design intent reference.
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!--
+    HPE-SMH plugin icon.
 
-  Three stacked elements on a transparent background:
-    1. "HPE" wordmark, uppercase, black, top of canvas.
-    2. Hollow horizontal rectangle in HPE green (#01A982), 3-px stroke,
-       transparent fill, sharp corners, ~6:1 aspect ratio — echoes
-       the HPE corporate "Element" mark.  Acts as a horizontal
-       separator between the two wordmarks.
-    3. "mngr" wordmark, lowercase, black, smaller than HPE, below the
-       rectangle.
+    Five 1U-server units stacked vertically.  Each unit has a small
+    front-panel status LED on the left.  An HPE-green ECG / heartbeat
+    line crosses the icon horizontally at mid-height, suggesting
+    active monitoring of the server rack.
 
-  This SVG is the source-of-truth for the design.  The shipping PNGs
-  (icons/ + images/) are produced by source/branding/render-icon.py
-  (pure-stdlib bitmap font, no librsvg/imagemagick/PIL needed).
--->
-<svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="0 0 64 64" width="64" height="64">
-
-  <!-- "HPE" uppercase, top -->
-  <text x="32" y="24" text-anchor="middle"
-        font-family="sans-serif" font-weight="900" font-size="22"
-        letter-spacing="1" fill="#181818">HPE</text>
-
-  <!-- HPE Element bar: 50×8, sharp corners, 3-px stroke, transparent fill -->
-  <rect x="7" y="31" width="50" height="8"
-        fill="none" stroke="#01A982" stroke-width="3"/>
-
-  <!-- "mngr" lowercase, bottom -->
-  <text x="32" y="58" text-anchor="middle"
-        font-family="sans-serif" font-weight="900" font-size="14"
-        letter-spacing="1" fill="#181818">mngr</text>
+    Source-of-truth.  source/branding/render-icon.py rasterises this
+    to icons/ + images/ PNG without needing librsvg/imagemagick/PIL —
+    it draws the same primitives directly from Python.
+  -->
+  <g stroke="#404040" stroke-width="1.4" stroke-linecap="round">
+    <rect x="10" y="14" width="44" height="5" rx="1"/>
+    <rect x="10" y="22" width="44" height="5" rx="1"/>
+    <rect x="10" y="30" width="44" height="5" rx="1"/>
+    <rect x="10" y="38" width="44" height="5" rx="1"/>
+    <rect x="10" y="46" width="44" height="5" rx="1"/>
+  </g>
+  <circle cx="13.5" cy="16.5" r="0.9" fill="#01a982"/>
+  <circle cx="13.5" cy="24.5" r="0.9" fill="#2ad2c9"/>
+  <circle cx="13.5" cy="32.5" r="0.9" fill="#01a982"/>
+  <circle cx="13.5" cy="40.5" r="0.9" fill="#c4ccc8"/>
+  <circle cx="13.5" cy="48.5" r="0.9" fill="#01a982"/>
+  <path d="M 0 32 L 21 32 L 25 28 L 29 36 L 33 20 L 37 44 L 41 32 L 64 32"
+        stroke="#01a982" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
