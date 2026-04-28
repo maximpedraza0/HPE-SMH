@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.28">
+<!ENTITY version   "2026.04.28b">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -21,6 +21,14 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.28b
+- fix: silence cosmetic noise in hpsmhd error_log. install.sh now swaps
+  /opt/hp/hpsmh/bin/rotatelogs for a thin grep wrapper that filters
+  mod_smh_config session-DBM errors, init.d "PID-> running now" traces,
+  AH00558 ServerName warnings, and legacy /etc/hosts/IP.conf probes.
+  smhpd.conf cannot be overridden directly because smhstart regenerates
+  it from a baked-in template on every restart.
+
 ### 2026.04.28
 - fix(plg): escape angle brackets in 2026.04.27 CHANGES — the literal
   text "&lt;path&gt;.hpe-mgmt-orig" looked like an unclosed XML tag and broke
