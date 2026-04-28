@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.28i">
+<!ENTITY version   "2026.04.28j">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -22,6 +22,11 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.28j
+- icon: tone the wordmark down from near-black to a mid neutral
+  gray (#5a6066), matching the perceived weight of stock unRAID
+  Font Awesome icons in the /Plugins listing on the default theme.
+
 ### 2026.04.28i
 - icon redesign: HPE wordmark on top, the iconic green Element
   rectangle (transparent fill, 3-px stroke, ~6:1 aspect) as a
