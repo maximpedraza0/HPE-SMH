@@ -319,6 +319,25 @@ if [[ -f /opt/hp/hpsmh/support/sysmgthp.redhat && ! -f /etc/pam.d/sysmgthp ]]; t
     install -m 0644 /opt/hp/hpsmh/support/sysmgthp.redhat /etc/pam.d/sysmgthp
 fi
 
+# hpsmhd error_log carries a baseline of cosmetic noise we cannot kill at
+# the source: mod_smh_config session-DBM ENOENT (per request), init.d PID
+# trace, AH00558 ServerName warning.  smhpd.conf is regenerated from a
+# baked-in template by smhstart on every restart, so the ErrorLog
+# directive itself is not user-editable.  Swap the rotatelogs binary
+# that Apache pipes its ErrorLog into for a thin grep wrapper that
+# delegates to the original.  Idempotent: detects an already-installed
+# wrapper by shebang and skips.  Files in /boot/config/.../overrides/
+# are NOT a substitute here — VFAT mounts /boot with fmask=0177, so a
+# script symlinked from there would never be executable.
+if [[ -f /opt/hp/hpsmh/bin/rotatelogs \
+        && ! -f /opt/hp/hpsmh/bin/rotatelogs.real ]]; then
+    log "fixup: installing rotatelogs filter wrapper"
+    mv /opt/hp/hpsmh/bin/rotatelogs /opt/hp/hpsmh/bin/rotatelogs.real
+    install -m 0755 "${PLUGIN_DIR}/source/wrappers/hpsmhd-error-log-filter.sh" \
+                    /opt/hp/hpsmh/bin/rotatelogs
+    chown hpsmh:hpsmh /opt/hp/hpsmh/bin/rotatelogs /opt/hp/hpsmh/bin/rotatelogs.real 2>/dev/null || true
+fi
+
 # The hpsmhd init script trusts its own pid file over process liveness —
 # a stale httpd.pid (e.g. from a crashed prior attempt) makes it report
 # "already running" and skip start.  Clean stale PIDs idempotently.
