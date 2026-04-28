@@ -164,15 +164,47 @@ if [[ -d "${SSA_ROOT}/SMH" ]]; then
     if [[ ! -d "${htdocs_hpssa}" ]]; then
         log "fixup: populating ${htdocs_hpssa} from ssa/HTML/SSA1 + ssa/SMH"
         mkdir -p "${htdocs_hpssa}"
-        # Main UI tree (hpessa.htm entryurl + css/images/js)
+        # Main UI tree (hpessa.htm entryurl + css/images/js).  Symlinks
+        # are fine here — these are static assets hpsmhd only reads.
         for f in "${SSA_ROOT}/HTML/SSA1/"*; do
             [[ -e "${f}" ]] || continue
             ln -sf "${f}" "${htdocs_hpssa}/$(basename "${f}")"
         done
-        # chp.htm (chpurl) + ipcelmclient.php (ajax backend)
-        ln -sf "${SSA_ROOT}/SMH/chp.htm"         "${htdocs_hpssa}/chp.htm"
-        ln -sf "${SSA_ROOT}/SMH/ipcelmclient.php" "${htdocs_hpssa}/ipcelmclient.php"
     fi
+    # chp.htm + ipcelmclient.php must be COPIES, not symlinks: hpsmhd
+    # opens chp.htm for write when serving /HPSSA/chp.htm (it embeds
+    # auth-context tokens before sending), and a symlink lets that
+    # write truncate the vendor source at /opt/smartstorageadmin/...
+    # to zero bytes.  Once truncated, the AddDataEntry() line that
+    # registers SSA under "Home::Storage::Smart Storage Administrator"
+    # is gone and SSA stops appearing inside the Storage box on the
+    # SMH home.  Same fix already applied to hpssa.xml above.
+    #
+    # If a previous install with the symlink already truncated the
+    # vendor source, recover by extracting chp.htm fresh from the
+    # cached ssa RPM before copying.
+    if [[ ! -s "${SSA_ROOT}/SMH/chp.htm" ]]; then
+        ssa_rpm=$(ls -1 "${CFG_DIR}/packages/"ssa-*.rpm 2>/dev/null | head -1)
+        if [[ -n "${ssa_rpm}" && -x /usr/bin/rpm2cpio && -x /usr/bin/cpio ]]; then
+            log "fixup: vendor ${SSA_ROOT}/SMH/chp.htm is empty (truncated by an earlier symlink install) — restoring from ${ssa_rpm##*/}"
+            tmp_extract=$(mktemp -d)
+            (cd "${tmp_extract}" && rpm2cpio "${ssa_rpm}" 2>/dev/null \
+                | cpio -idm "*SMH/chp.htm" "*SMH/ipcelmclient.php" 2>/dev/null) || true
+            for f in chp.htm ipcelmclient.php; do
+                if [[ -s "${tmp_extract}/opt/smartstorageadmin/ssa/SMH/${f}" ]]; then
+                    install -m 0644 "${tmp_extract}/opt/smartstorageadmin/ssa/SMH/${f}" \
+                                    "${SSA_ROOT}/SMH/${f}"
+                fi
+            done
+            rm -rf "${tmp_extract}"
+        else
+            log "warn: ${SSA_ROOT}/SMH/chp.htm empty and no cached ssa RPM to restore from"
+        fi
+    fi
+    log "fixup: ${htdocs_hpssa}/{chp.htm,ipcelmclient.php} (copy, not symlink)"
+    rm -f "${htdocs_hpssa}/chp.htm" "${htdocs_hpssa}/ipcelmclient.php"
+    install -m 0644 "${SSA_ROOT}/SMH/chp.htm"         "${htdocs_hpssa}/chp.htm"
+    install -m 0644 "${SSA_ROOT}/SMH/ipcelmclient.php" "${htdocs_hpssa}/ipcelmclient.php"
 fi
 if [[ -f "${SSA_ROOT}/init.d/hpessad" && ! -e /etc/init.d/hpessad ]]; then
     log "fixup: /etc/init.d/hpessad -> ${SSA_ROOT}/init.d/hpessad"

@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.28b">
+<!ENTITY version   "2026.04.28c">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -21,6 +21,16 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.28c
+- fix(install): SSA disappears from Storage box after first request.
+  /opt/hp/hpsmh/data/htdocs/HPSSA/chp.htm was a symlink to the vendor
+  source; hpsmhd opens it for write when serving /HPSSA/chp.htm, and
+  the write truncated the vendor file to zero bytes — which removed the
+  AddDataEntry() line that registers SSA under Home::Storage in the SMH
+  data tree.  Now copy chp.htm + ipcelmclient.php (not symlink), and
+  recover from a previously truncated vendor source by re-extracting
+  fresh copies from the cached ssa RPM.
+
 ### 2026.04.28b
 - fix: silence cosmetic noise in hpsmhd error_log. install.sh now swaps
   /opt/hp/hpsmh/bin/rotatelogs for a thin grep wrapper that filters
