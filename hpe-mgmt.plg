@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.28c">
+<!ENTITY version   "2026.04.28d">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -21,6 +21,16 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.28d
+- fix(rc): recover from hpessad init.d false-positive at boot.
+  /usr/sbin/ssa -start can self-abort with "Only one instance ... can
+  be active" against a stale lock from the previous boot, and the
+  vendor init script's `daemon` shim returns OK regardless, so the
+  failure was silent — ssaresponder never came up and SSA disappeared
+  from the SMH UI.  rc.hpe-mgmt now checks pgrep ssaresponder after
+  init.d/hpessad start; if missing, force `ssa -stop` then re-start
+  once to clear the lock.
+
 ### 2026.04.28c
 - fix(install): SSA disappears from Storage box after first request.
   /opt/hp/hpsmh/data/htdocs/HPSSA/chp.htm was a symlink to the vendor
