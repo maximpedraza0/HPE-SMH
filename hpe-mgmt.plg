@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.28f">
+<!ENTITY version   "2026.04.28g">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -18,9 +18,19 @@
   launch="&launch;"
   pluginURL="&pluginURL;"
   support="&gitURL;/issues"
+  icon="&name;.png"
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.28g
+- fix: also wire the plugin icon into the /Plugins listing.
+  unRAID looks up icons in three different paths depending on context
+  (Settings menu nav uses icons/, Settings page content uses images/,
+  /Plugins listing reads the .plg's icon= attribute and looks in
+  images/).  Add hpe-mgmt.png under images/ and an icon attribute to
+  the <PLUGIN> element so the logo also shows on the /Plugins page,
+  not just inside Settings.
+
 ### 2026.04.28f
 - feat: plugin icon. Replace generic Font Awesome "server" with a
   monochrome 1U-server-on-HPE-green-backdrop logo (SVG source in
