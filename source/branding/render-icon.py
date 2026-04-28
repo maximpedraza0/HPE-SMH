@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 """
 Render the HPE-SMH plugin icon to PNG using only the Python stdlib.
-Mirrors source/branding/hpe-mgmt.svg so we don't need a rasteriser
-(librsvg/imagemagick/inkscape) installed at build time.
+
+Layout (64×64 canvas, transparent background):
+
+    - "HPE" wordmark in black uppercase at the top.
+    - "HPE Element" rectangle in the middle as a horizontal separator:
+      hollow 5:1 horizontal bar (the iconic HPE corporate mark
+      proportions), 3-px green (#01A982) stroke, transparent fill,
+      sharp corners.
+    - "mngr" wordmark in black lowercase below the rectangle.
+
+Glyphs come from a hand-drawn 5×7 bitmap font built into this script
+so we don't need a TTF, librsvg, imagemagick, or PIL at build time.
 
 Usage:
     python3 source/branding/render-icon.py icons/hpe-mgmt.png [size]
@@ -16,16 +26,84 @@ import sys
 import zlib
 
 
-# Brand palette
 HPE_GREEN = (1, 169, 130, 255)
-HPE_GREEN_DARK = (1, 122, 93, 255)   # rack-ear shadow
-WHITE = (255, 255, 255, 255)
-NEAR_BLACK = (31, 31, 31, 255)
+NEAR_BLACK = (24, 24, 24, 255)
 TRANSPARENT = (0, 0, 0, 0)
 
 
+# ---------------------------------------------------------------------------
+# 5×7 pixel font.  '#' = pixel on, '.' = off.
+# ---------------------------------------------------------------------------
+GLYPHS = {
+    "H": [
+        "#...#",
+        "#...#",
+        "#...#",
+        "#####",
+        "#...#",
+        "#...#",
+        "#...#",
+    ],
+    "P": [
+        "####.",
+        "#...#",
+        "#...#",
+        "####.",
+        "#....",
+        "#....",
+        "#....",
+    ],
+    "E": [
+        "#####",
+        "#....",
+        "#....",
+        "####.",
+        "#....",
+        "#....",
+        "#####",
+    ],
+    "m": [
+        ".....",
+        ".....",
+        "##.#.",
+        "#.#.#",
+        "#.#.#",
+        "#.#.#",
+        "#.#.#",
+    ],
+    "n": [
+        ".....",
+        ".....",
+        "####.",
+        "#...#",
+        "#...#",
+        "#...#",
+        "#...#",
+    ],
+    "g": [
+        ".....",
+        ".####",
+        "#...#",
+        "#...#",
+        ".####",
+        "....#",
+        "####.",
+    ],
+    "r": [
+        ".....",
+        ".....",
+        "####.",
+        "#...#",
+        "#....",
+        "#....",
+        "#....",
+    ],
+}
+GLYPH_W = 5
+GLYPH_H = 7
+
+
 def blend(over, under):
-    """Alpha-composite over onto under, both as (r,g,b,a) 0-255."""
     or_, og, ob, oa = over
     ur, ug, ub, ua = under
     if oa == 0:
@@ -53,61 +131,82 @@ class Canvas:
             i = y * self.w + x
             self.px[i] = blend(color, self.px[i])
 
-    def filled_rect(self, x0, y0, x1, y1, color, radius=0):
-        # Inclusive coords; radius is corner radius in pixels.
+    def filled_rect(self, x0, y0, x1, y1, color):
         for y in range(y0, y1):
             for x in range(x0, x1):
-                if radius > 0:
-                    cx, cy = x, y
-                    if cx < x0 + radius and cy < y0 + radius:
-                        if (x0 + radius - cx) ** 2 + (y0 + radius - cy) ** 2 > radius * radius:
-                            continue
-                    elif cx >= x1 - radius and cy < y0 + radius:
-                        if (cx - (x1 - radius - 1)) ** 2 + (y0 + radius - cy) ** 2 > radius * radius:
-                            continue
-                    elif cx < x0 + radius and cy >= y1 - radius:
-                        if (x0 + radius - cx) ** 2 + (cy - (y1 - radius - 1)) ** 2 > radius * radius:
-                            continue
-                    elif cx >= x1 - radius and cy >= y1 - radius:
-                        if (cx - (x1 - radius - 1)) ** 2 + (cy - (y1 - radius - 1)) ** 2 > radius * radius:
-                            continue
                 self.put(x, y, color)
 
-    def vline(self, x, y0, y1, color, thickness=1):
-        for t in range(thickness):
-            for y in range(y0, y1):
-                self.put(x + t, y, color)
+    def hollow_rect(self, x0, y0, x1, y1, thickness, color):
+        self.filled_rect(x0, y0, x1, y0 + thickness, color)
+        self.filled_rect(x0, y1 - thickness, x1, y1, color)
+        self.filled_rect(x0, y0 + thickness, x0 + thickness, y1 - thickness, color)
+        self.filled_rect(x1 - thickness, y0 + thickness, x1, y1 - thickness, color)
+
+    def draw_glyph(self, x0, y0, glyph, scale, color):
+        rows = GLYPHS.get(glyph)
+        if rows is None:
+            return
+        for ry, row in enumerate(rows):
+            for rx, ch in enumerate(row):
+                if ch == "#":
+                    self.filled_rect(
+                        x0 + rx * scale,
+                        y0 + ry * scale,
+                        x0 + (rx + 1) * scale,
+                        y0 + (ry + 1) * scale,
+                        color,
+                    )
+
+    def draw_text(self, x0, y0, text, scale, color, spacing=1):
+        x = x0
+        for ch in text:
+            self.draw_glyph(x, y0, ch, scale, color)
+            x += GLYPH_W * scale + spacing * scale
+
+    def text_width(self, text, scale, spacing=1):
+        n = len(text)
+        if n == 0:
+            return 0
+        return n * GLYPH_W * scale + (n - 1) * spacing * scale
 
 
 def render(size: int) -> bytes:
     """Render at size×size via 4× supersampling, then box-downsample."""
     ss = 4
     big = Canvas(size * ss, size * ss)
-    s = size * ss / 64.0  # scale factor: SVG viewBox is 0..64
+    s = size * ss / 64.0  # scale factor: design space is 0..64
 
     def S(v):
         return int(round(v * s))
 
-    radius = max(1, S(6))
+    # ---- "HPE" — uppercase, large, top of canvas ---------------------
+    # 5×7 font at scale 3 → 15×21 per glyph; total 51×21 wordmark.
+    hpe_scale = max(1, S(3))
+    hpe_w = big.text_width("HPE", hpe_scale, spacing=1)
+    hpe_x = (size * ss - hpe_w) // 2
+    hpe_y = S(5)
+    big.draw_text(hpe_x, hpe_y, "HPE", hpe_scale, NEAR_BLACK, spacing=1)
 
-    # Green rounded backdrop, full canvas.
-    big.filled_rect(0, 0, size * ss, size * ss, HPE_GREEN, radius=radius)
+    # ---- HPE Element rectangle: 5:1 wide horizontal bar --------------
+    # Sits between the two wordmarks as a horizontal separator.
+    # 50 design units wide × 8 tall (~6:1 to match the official mark
+    # which is even thinner than 5:1), sharp corners, 3-px stroke.
+    frame_x0 = S(7)
+    frame_y0 = S(31)
+    frame_x1 = S(57)
+    frame_y1 = S(39)
+    frame_stroke = max(1, S(3))
+    big.hollow_rect(frame_x0, frame_y0, frame_x1, frame_y1, frame_stroke, HPE_GREEN)
 
-    # Server white panel (inset rectangle).
-    big.filled_rect(S(8), S(24), S(56), S(40), WHITE)
+    # ---- "mngr" — lowercase, smaller, below the Element bar ----------
+    # 5×7 font at scale 2 → 10×14 per glyph; total 46×14 wordmark.
+    mngr_scale = max(1, S(2))
+    mngr_w = big.text_width("mngr", mngr_scale, spacing=1)
+    mngr_x = (size * ss - mngr_w) // 2
+    mngr_y = S(45)
+    big.draw_text(mngr_x, mngr_y, "mngr", mngr_scale, NEAR_BLACK, spacing=1)
 
-    # Status LED (tiny green square on front-left).
-    big.filled_rect(S(11), S(29), S(15), S(35), HPE_GREEN)
-
-    # Drive bay separators (6 vertical lines).
-    bay_thickness = max(1, ss // 2)
-    for x_unit in (22, 28, 34, 40, 46, 52):
-        big.vline(S(x_unit), S(26), S(38), NEAR_BLACK, thickness=bay_thickness)
-
-    # Bottom rack-ear shadow.
-    big.filled_rect(S(8), S(44), S(56), S(46), HPE_GREEN_DARK)
-
-    # Box downsample 4×4 → 1
+    # ---- Box downsample 4×4 → 1 --------------------------------------
     out = Canvas(size, size)
     for y in range(size):
         for x in range(size):
@@ -136,13 +235,12 @@ def render(size: int) -> bytes:
 
 
 def _png(canvas: Canvas) -> bytes:
-    """Encode canvas as RGBA PNG bytes."""
     sig = b"\x89PNG\r\n\x1a\n"
     ihdr = struct.pack(">IIBBBBB", canvas.w, canvas.h, 8, 6, 0, 0, 0)
 
     raw = bytearray()
     for y in range(canvas.h):
-        raw.append(0)  # filter byte: none
+        raw.append(0)
         for x in range(canvas.w):
             r, g, b, a = canvas.px[y * canvas.w + x]
             raw.extend((r, g, b, a))
