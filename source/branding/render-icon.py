@@ -27,7 +27,9 @@ import zlib
 
 
 HPE_GREEN = (1, 169, 130, 255)
-NEAR_BLACK = (24, 24, 24, 255)
+# Mid neutral gray — picked to match the perceived tone of stock unRAID
+# Font Awesome icons in the /Plugins listing on the default light theme.
+TEXT_GRAY = (90, 96, 102, 255)
 TRANSPARENT = (0, 0, 0, 0)
 
 
@@ -185,7 +187,7 @@ def render(size: int) -> bytes:
     hpe_w = big.text_width("HPE", hpe_scale, spacing=1)
     hpe_x = (size * ss - hpe_w) // 2
     hpe_y = S(5)
-    big.draw_text(hpe_x, hpe_y, "HPE", hpe_scale, NEAR_BLACK, spacing=1)
+    big.draw_text(hpe_x, hpe_y, "HPE", hpe_scale, TEXT_GRAY, spacing=1)
 
     # ---- HPE Element rectangle: 5:1 wide horizontal bar --------------
     # Sits between the two wordmarks as a horizontal separator.
@@ -204,7 +206,7 @@ def render(size: int) -> bytes:
     mngr_w = big.text_width("mngr", mngr_scale, spacing=1)
     mngr_x = (size * ss - mngr_w) // 2
     mngr_y = S(45)
-    big.draw_text(mngr_x, mngr_y, "mngr", mngr_scale, NEAR_BLACK, spacing=1)
+    big.draw_text(mngr_x, mngr_y, "mngr", mngr_scale, TEXT_GRAY, spacing=1)
 
     # ---- Box downsample 4×4 → 1 --------------------------------------
     out = Canvas(size, size)
