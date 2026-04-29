@@ -22,6 +22,7 @@ GNUPG_PKG="gnupg-1.4.23-x86_64-6.txz"
 # the import — defence against a tampered repo or accidental swap.
 TRUSTED_KEYS=(
     "hpe-signing.pub:57446EFDE098E5C934B69C7DC208ADDE26C2B797"
+    "hpe-signing-key2.pub:9E8C4A25C49408EFA8D09D96E3FE26E774C3A4A2"
     "almalinux-signing.pub:BC5EDDCADF502C077F1582882AE81E8ACED7258B"
 )
 
