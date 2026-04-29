@@ -323,7 +323,7 @@ Storage:
   <label><input type="checkbox" name="EX_ssaducli"  <?=chk(isset($extras_set['ssaducli']))?>>  <strong>ssaducli</strong> &mdash; Smart Storage Diagnostic Utility (CLI)</label><br>
   <label><input type="checkbox" name="EX_storcli"   <?=chk(isset($extras_set['storcli']))?>>   <strong>storcli</strong> &mdash; Broadcom/LSI MegaRAID CLI</label><br>
   <label><input type="checkbox" name="EX_hp_ocsbbd" <?=chk(isset($extras_set['hp-ocsbbd']))?>> <strong>hp-ocsbbd</strong> &mdash; Smart Array cache-battery daemon</label>
-  &nbsp;&nbsp;<label><input type="checkbox" name="BOOT_hp_ocsbbd" <?=boot_chk($boot_set,'hp-ocsbbd')?>> <em>start at boot</em></label>
+  &nbsp;&nbsp;(<label><input type="checkbox" name="BOOT_hp_ocsbbd" <?=boot_chk($boot_set,'hp-ocsbbd')?>> <em>start hp-ocsbbd at boot</em></label>)
 
 :hpe_mgmt_extras_storage_help:
 
@@ -332,15 +332,15 @@ Network &amp; Fibre Channel:
   <label><input type="checkbox" name="EX_hpe_emulex_smartsan_enablement_kit" <?=chk(isset($extras_set['hpe-emulex-smartsan-enablement-kit']))?>> <strong>hpe-emulex-smartsan-enablement-kit</strong> &mdash; Emulex FC Smart SAN</label><br>
   <label><input type="checkbox" name="EX_hpe_qlogic_smartsan_enablement_kit" <?=chk(isset($extras_set['hpe-qlogic-smartsan-enablement-kit']))?>> <strong>hpe-qlogic-smartsan-enablement-kit</strong> &mdash; QLogic FC Smart SAN</label><br>
   <label><input type="checkbox" name="EX_mft"      <?=chk(isset($extras_set['mft']))?>>       <strong>mft</strong> &mdash; Mellanox Firmware Tools</label>
-  &nbsp;&nbsp;<label><input type="checkbox" name="BOOT_mft" <?=boot_chk($boot_set,'mft')?>> <em>start at boot</em></label><br>
+  &nbsp;&nbsp;(<label><input type="checkbox" name="BOOT_mft" <?=boot_chk($boot_set,'mft')?>> <em>load mst kernel module at boot</em></label>)<br>
   <label><input type="checkbox" name="EX_hp_tg3sd" <?=chk(isset($extras_set['hp-tg3sd']))?>> <strong>hp-tg3sd</strong> &mdash; Broadcom tg3 NIC status daemon</label>
-  &nbsp;&nbsp;<label><input type="checkbox" name="BOOT_hp_tg3sd" <?=boot_chk($boot_set,'hp-tg3sd')?>> <em>start at boot</em></label>
+  &nbsp;&nbsp;(<label><input type="checkbox" name="BOOT_hp_tg3sd" <?=boot_chk($boot_set,'hp-tg3sd')?>> <em>start hp-tg3sd at boot</em></label>)
 
 :hpe_mgmt_extras_network_help:
 
 Version control &amp; firmware management:
 : <label><input type="checkbox" name="EX_sut"     <?=chk(isset($extras_set['sut']))?>>     <strong>sut</strong> &mdash; Smart Update Tool (daemon)</label>
-  &nbsp;&nbsp;<label><input type="checkbox" name="BOOT_sut" <?=boot_chk($boot_set,'sut')?>> <em>start at boot</em></label><br>
+  &nbsp;&nbsp;(<label><input type="checkbox" name="BOOT_sut" <?=boot_chk($boot_set,'sut')?>> <em>start sut at boot</em></label>)<br>
   <label><input type="checkbox" name="EX_sum"     <?=chk(isset($extras_set['sum']))?>>     <strong>sum</strong> &mdash; Smart Update Manager (UI)</label><br>
   <label><input type="checkbox" name="EX_ilorest" <?=chk(isset($extras_set['ilorest']))?>> <strong>ilorest</strong> &mdash; iLO REDFISH client CLI</label><br>
   <label><input type="checkbox" name="EX_hponcfg" <?=chk(isset($extras_set['hponcfg']))?>> <strong>hponcfg</strong> &mdash; iLO Online Configuration utility</label>
