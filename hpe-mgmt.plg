@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.29h">
+<!ENTITY version   "2026.04.29i">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -22,6 +22,13 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.29i
+- ux(settings): stop the progress-iframe auto-tail poller once output
+  has stopped growing for 2 s.  v29e's setInterval ran every 250 ms
+  forever — fine while install.sh is streaming, wasteful afterwards.
+  Now: poll-and-pin while content grows; clearInterval on idle; the
+  form's submit event wakes the poller back up for the next run.
+
 ### 2026.04.29h
 - fix(fetch): URL_MAP composite key was using "url%/*" to derive the
   base, which works for HPE SDR (flat layout) but breaks for AlmaLinux
