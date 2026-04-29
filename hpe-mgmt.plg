@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.29e">
+<!ENTITY version   "2026.04.29f">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -22,6 +22,16 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.29f
+- fix(gpg): trust HPE's second signing key (2024-10).  The SUM
+  repo at SDR/repo/sum/RedHat/8/x86_64/current is signed with key
+  ID 74C3A4A2, not the 26C2B797 we had pinned.  Verify-repo was
+  failing on that repo only, retrying 4 times before silently
+  continuing with partial data (BaseOS/AppStream/SPP/SPP-RHEL7
+  succeeded; SUM was dropped from the URL map).  Add the new key
+  (hpePublicKey2048_key2.pub from downloads.linux.hpe.com/SDR/) to
+  source/keys/ with its full fingerprint pinned in bootstrap-gpg.sh.
+
 ### 2026.04.29e
 - ux(settings): auto-tail the progress iframe.  install.sh / restart
   / stop stream their output into the iframe at the bottom of the

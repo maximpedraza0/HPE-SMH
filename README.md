@@ -82,9 +82,12 @@ also be listed in `BOOT_EXTRAS` to start on boot.
 Downloads are verified at two levels:
 
 1. **Metadata signature**: `repomd.xml` of each HPE SDR repo is signed with
-   the HPE software-signing key (shipped in `source/keys/hpe-signing.pub`).
-   The plugin imports the key into a sandboxed keyring and verifies
-   `repomd.xml.asc` against it before reading any package indexes.
+   one of two HPE software-signing keys (shipped in
+   `source/keys/hpe-signing.pub` — the 2015 key, used by most repos — and
+   `source/keys/hpe-signing-key2.pub` — the 2024 key, used by the SUM repo
+   and others HPE rotates onto). The plugin imports both into a sandboxed
+   keyring and verifies `repomd.xml.asc` against it before reading any
+   package indexes.
 2. **Per-RPM checksum**: each RPM's SHA1 in the repo metadata is compared
    to the downloaded file. Mismatches abort install.
 
