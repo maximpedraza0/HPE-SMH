@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.29g">
+<!ENTITY version   "2026.04.29h">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -22,6 +22,17 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.29h
+- fix(fetch): URL_MAP composite key was using "url%/*" to derive the
+  base, which works for HPE SDR (flat layout) but breaks for AlmaLinux
+  whose RPMs nest under Packages/&lt;letter&gt;/.  Result: every BaseOS and
+  AppStream package showed up in fetch-hpe as "no RPM found for net-
+  snmp-libs in https://repo.almalinux.org/almalinux/8/BaseOS/x86_64/os".
+  Pass the original base URL through verify-repo's output (now a
+  4-column "&lt;base&gt; &lt;url&gt; &lt;type&gt; &lt;hash&gt;" stripe) so fetch-hpe doesn't
+  have to re-derive it.  v2 stamp prefix invalidates the v1 cached
+  3-column maps on first run after upgrade.
+
 ### 2026.04.29g
 - fix(fetch): URL_MAP / CHECKSUM_MAP collisions across repos.  When a
   user enabled hp-ocsbbd or hp-tg3sd, fetch-hpe verified both

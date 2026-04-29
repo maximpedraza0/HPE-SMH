@@ -206,15 +206,18 @@ resolve_urls() {
 # ---------------------------------------------------------------------------
 # Signature verification — yum-style trust chain via repomd.xml
 # ---------------------------------------------------------------------------
-# verify-repo.sh emits "<full-url> <checksum-type> <checksum>" per line.
-# We build two maps from it:
-#   URL_MAP["<base>|<fn>"]  = full URL to the RPM
-#   CHECKSUM_MAP["<full-url>"] = "<type>:<hash>"
+# verify-repo.sh emits "<base-url> <full-url> <checksum-type> <checksum>"
+# per line.  We build two maps from it:
+#   URL_MAP["<base>|<fn>"]      = full URL to the RPM
+#   CHECKSUM_MAP["<full-url>"]  = "<type>:<hash>"
 # Composite key on URL_MAP lets distinct repos share filenames without
 # clobbering (SPP/RedHat/7 and SPP/RedHat/8 both ship the same ssacli /
 # hponcfg / hpsmh / ssa filenames).  CHECKSUM_MAP is keyed by the full
 # URL for the same reason — same RPM filename across repos can have
 # different builds and therefore different hashes.
+# The base column comes straight from verify-repo because deriving it
+# from the full URL is unsafe: AlmaLinux nests RPMs under Packages/<x>/
+# while HPE SDR is flat, so url%/* would give different strings.
 # rely on resolve_latest_rpm filtering by URL prefix (base).
 declare -A CHECKSUM_MAP=()
 declare -A URL_MAP=()
@@ -301,11 +304,10 @@ refresh_checksum_map() {
         die "verify-repo.sh failed after ${max_attempts} attempts; refusing to install anything"
     fi
 
-    local url type hash fn base
-    while read -r url type hash; do
-        [[ -n "${url}" && -n "${type}" && -n "${hash}" ]] || continue
+    local base url type hash fn
+    while read -r base url type hash; do
+        [[ -n "${base}" && -n "${url}" && -n "${type}" && -n "${hash}" ]] || continue
         fn="${url##*/}"
-        base="${url%/*}"
         URL_MAP["${base}|${fn}"]="${url}"
         CHECKSUM_MAP["${url}"]="${type}:${hash}"
     done < "${tmp}"
