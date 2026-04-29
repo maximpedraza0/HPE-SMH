@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.29b">
+<!ENTITY version   "2026.04.29c">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -22,6 +22,19 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.29c
+- ux(settings): the v29b sub-row layout also got mangled — the
+  unRAID page parser wraps any bare text outside an HTML tag
+  (the "&#x21B3;" arrow, in this case) in its own paragraph,
+  splitting one logical row into 4-5 visual blocks.  Revert
+  the layout to the v28k inline structure (single visual row
+  per package: parent-checkbox + spacing + boot-checkbox) and
+  rely on self-describing label text instead — the boot label
+  now reads "start hp-ocsbbd at boot", "start hp-tg3sd at boot",
+  "start sut at boot", "load mst kernel module at boot".  The
+  package the boot checkbox controls is unambiguous from the
+  text alone, no layout magic needed.
+
 ### 2026.04.29b
 - ux(settings): the v29a paren-grouped layout rendered as four
   separate lines (paren, label, paren) under the unRAID page
