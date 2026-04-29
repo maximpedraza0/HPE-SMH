@@ -287,6 +287,20 @@ with `removepkg`, and leaves the config + RPM cache under
 `/boot/config/plugins/hpe-mgmt/` so reinstall is fast. Delete that folder
 manually if you want a fully clean slate.
 
+## Contributing
+
+After cloning, install the repo's git hooks once:
+
+```
+scripts/install-hooks.sh
+```
+
+This symlinks `scripts/hooks/pre-push` into `.git/hooks/`, which validates
+`hpe-mgmt.plg` as XML before each push. unRAID's plugin manager rejects a
+malformed `.plg` and quarantines it under `/boot/config/plugins-error/`, so
+the hook catches the most common foot-gun (raw `<angle-bracket>` text in
+the `CHANGES` block) before it reaches main.
+
 ## Support
 
 - Issues: https://github.com/mpedraza/HPE-SMH/issues
