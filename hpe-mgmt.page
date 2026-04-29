@@ -287,14 +287,36 @@ $hponcfg   = hpe_mgmt_hponcfg_summary();
     $('select[name=STACK]').change(hpeMgmtToggleStack);
 
     /* Auto-tail the progress iframe so new output from install.sh /
-       restart / stop stays visible as it streams in.  Same-origin so
-       contentWindow access is allowed. */
-    setInterval(function () {
+       restart / stop stays visible as it streams in.  Polls the iframe
+       height every 250 ms while output is growing; once it has stopped
+       growing for 2 s we shut the interval down so we are not burning
+       CPU on an idle page.  Submitting the form wakes the poller back
+       up.  Same-origin, so contentDocument access is allowed. */
+    var hpePoll = null, hpeLastHeight = -1, hpeIdleTicks = 0;
+    var HPE_POLL_MS = 250, HPE_IDLE_LIMIT = 8;  // 8 * 250 = 2 s
+    function hpeTickProgressFrame() {
       var f = document.getElementsByName('progressFrame')[0];
       var doc = f && f.contentDocument;
       var el  = doc && (doc.scrollingElement || doc.documentElement || doc.body);
-      if (el) el.scrollTop = el.scrollHeight;
-    }, 250);
+      if (!el) return;
+      if (el.scrollHeight !== hpeLastHeight) {
+        hpeLastHeight = el.scrollHeight;
+        hpeIdleTicks  = 0;
+        el.scrollTop  = el.scrollHeight;
+      } else if (++hpeIdleTicks >= HPE_IDLE_LIMIT && hpePoll !== null) {
+        clearInterval(hpePoll);
+        hpePoll = null;
+      }
+    }
+    function hpeStartProgressPoll() {
+      hpeIdleTicks  = 0;
+      hpeLastHeight = -1;
+      if (hpePoll === null) {
+        hpePoll = setInterval(hpeTickProgressFrame, HPE_POLL_MS);
+      }
+    }
+    hpeStartProgressPoll();
+    $('form[name=hpe_mgmt_form]').on('submit', hpeStartProgressPoll);
   });
 </script>
 
