@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.29d">
+<!ENTITY version   "2026.04.29e">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -22,6 +22,15 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.29e
+- ux(settings): auto-tail the progress iframe.  install.sh / restart
+  / stop stream their output into the iframe at the bottom of the
+  Settings page, but the iframe was not auto-scrolling — new lines
+  appended off-screen and the user had to drag the iframe scrollbar
+  manually to follow progress.  Add a 250 ms setInterval in the parent
+  page that pins the iframe scroll to its bottom (same-origin, so
+  contentDocument access is allowed).
+
 ### 2026.04.29d
 - ux(settings): even v28k's two-source-line layout (parent label
   on one line, BOOT label on the next with indent) was splitting
