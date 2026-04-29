@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.29c">
+<!ENTITY version   "2026.04.29d">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -22,6 +22,14 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.29d
+- ux(settings): even v28k's two-source-line layout (parent label
+  on one line, BOOT label on the next with indent) was splitting
+  into two visual rows under unRAID's MarkdownExtra renderer —
+  every newline inside a definition-list dd block becomes a paragraph
+  break.  Collapse each EX-plus-BOOT row onto a single source line
+  so there is no newline for MarkdownExtra to pick up.
+
 ### 2026.04.29c
 - ux(settings): the v29b sub-row layout also got mangled — the
   unRAID page parser wraps any bare text outside an HTML tag
