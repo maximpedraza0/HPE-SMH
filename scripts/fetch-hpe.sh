@@ -170,11 +170,14 @@ need_compat_libs() {
 # every RPM we'd consider installing is already in the trusted map.
 resolve_latest_rpm() {
     local base="$1" pkgname="$2"
-    local fn url
+    local key fn
     local -a candidates=()
-    for fn in "${!URL_MAP[@]}"; do
-        url="${URL_MAP[$fn]}"
-        [[ "${url}" == "${base}/"* ]] || continue
+    # URL_MAP keys are "<base>|<fn>" so distinct repos can share filenames
+    # without clobbering each other (e.g. SPP/RedHat/7 and SPP/RedHat/8
+    # both ship ssacli-4.21-7.0.x86_64.rpm).
+    for key in "${!URL_MAP[@]}"; do
+        [[ "${key}" == "${base}|"* ]] || continue
+        fn="${key#*|}"
         [[ "${fn}" =~ ^${pkgname}-[0-9] ]] || continue
         [[ "${fn}" == *.rpm ]] || continue
         candidates+=("${fn}")
@@ -184,7 +187,7 @@ resolve_latest_rpm() {
         return
     fi
     local latest; latest="$(printf '%s\n' "${candidates[@]}" | sort -V | tail -1)"
-    echo "${URL_MAP[$latest]}"
+    echo "${URL_MAP["${base}|${latest}"]}"
 }
 
 # Dedup + resolve.  Emits one RPM URL per line.
@@ -204,11 +207,14 @@ resolve_urls() {
 # Signature verification — yum-style trust chain via repomd.xml
 # ---------------------------------------------------------------------------
 # verify-repo.sh emits "<full-url> <checksum-type> <checksum>" per line.
-# We build two filename-keyed maps from it:
-#   URL_MAP["<fn>"]      = full URL to the RPM
-#   CHECKSUM_MAP["<fn>"] = "<type>:<hash>"
-# PKGS_BY_BASE[<base>][<fn>] would be ideal for disambiguation, but bash
-# does not support nested assoc arrays.  We store the URL in URL_MAP and
+# We build two maps from it:
+#   URL_MAP["<base>|<fn>"]  = full URL to the RPM
+#   CHECKSUM_MAP["<full-url>"] = "<type>:<hash>"
+# Composite key on URL_MAP lets distinct repos share filenames without
+# clobbering (SPP/RedHat/7 and SPP/RedHat/8 both ship the same ssacli /
+# hponcfg / hpsmh / ssa filenames).  CHECKSUM_MAP is keyed by the full
+# URL for the same reason — same RPM filename across repos can have
+# different builds and therefore different hashes.
 # rely on resolve_latest_rpm filtering by URL prefix (base).
 declare -A CHECKSUM_MAP=()
 declare -A URL_MAP=()
@@ -295,24 +301,25 @@ refresh_checksum_map() {
         die "verify-repo.sh failed after ${max_attempts} attempts; refusing to install anything"
     fi
 
-    local url type hash fn
+    local url type hash fn base
     while read -r url type hash; do
         [[ -n "${url}" && -n "${type}" && -n "${hash}" ]] || continue
         fn="${url##*/}"
-        URL_MAP["${fn}"]="${url}"
-        CHECKSUM_MAP["${fn}"]="${type}:${hash}"
+        base="${url%/*}"
+        URL_MAP["${base}|${fn}"]="${url}"
+        CHECKSUM_MAP["${url}"]="${type}:${hash}"
     done < "${tmp}"
     rm -f "${tmp}"
     log "trusted checksum map: ${#CHECKSUM_MAP[@]} packages"
 }
 
 verify_rpm() {
-    local rpm="$1"
+    local rpm="$1" url="$2"
     [[ "${VERIFY_GPG}" == "1" ]] || return 0
     local fn="${rpm##*/}"
-    local entry="${CHECKSUM_MAP[${fn}]:-}"
+    local entry="${CHECKSUM_MAP[${url}]:-}"
     if [[ -z "${entry}" ]]; then
-        warn "no checksum for ${fn} in repo metadata"
+        warn "no checksum for ${fn} in repo metadata (url ${url})"
         return 1
     fi
     local type="${entry%%:*}"
@@ -351,7 +358,7 @@ install_one_rpm() {
         log "cached: ${fn}"
     fi
 
-    if ! verify_rpm "${cached}"; then
+    if ! verify_rpm "${cached}" "${url}"; then
         warn "refusing to install ${fn} (verification failed)"
         return 1
     fi

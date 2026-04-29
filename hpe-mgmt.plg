@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.29f">
+<!ENTITY version   "2026.04.29g">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -22,6 +22,18 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.29g
+- fix(fetch): URL_MAP / CHECKSUM_MAP collisions across repos.  When a
+  user enabled hp-ocsbbd or hp-tg3sd, fetch-hpe verified both
+  spp/RedHat/8 and spp/RedHat/7.  Both ship identical filenames
+  (ssacli-4.21-7.0.x86_64.rpm, hponcfg-5.5.0-0.x86_64.rpm, hpsmh,
+  hp-smh-templates, ssa, ssaducli, sut...) so the basename-keyed
+  URL_MAP got clobbered by whichever repo loaded last; resolve_-
+  latest_rpm then could not find any of the EL8 packages and emitted
+  a stream of "no RPM found for &lt;pkg&gt; in spp/RedHat/8/..." warnings.
+  Re-key URL_MAP as "&lt;base&gt;|&lt;fn&gt;" and CHECKSUM_MAP as the full URL
+  so each repo's entries stay independent.
+
 ### 2026.04.29f
 - fix(gpg): trust HPE's second signing key (2024-10).  The SUM
   repo at SDR/repo/sum/RedHat/8/x86_64/current is signed with key
