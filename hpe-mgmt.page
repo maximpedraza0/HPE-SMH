@@ -285,6 +285,16 @@ $hponcfg   = hpe_mgmt_hponcfg_summary();
     }
     hpeMgmtToggleStack();
     $('select[name=STACK]').change(hpeMgmtToggleStack);
+
+    /* Auto-tail the progress iframe so new output from install.sh /
+       restart / stop stays visible as it streams in.  Same-origin so
+       contentWindow access is allowed. */
+    setInterval(function () {
+      var f = document.getElementsByName('progressFrame')[0];
+      var doc = f && f.contentDocument;
+      var el  = doc && (doc.scrollingElement || doc.documentElement || doc.body);
+      if (el) el.scrollTop = el.scrollHeight;
+    }, 250);
   });
 </script>
 
