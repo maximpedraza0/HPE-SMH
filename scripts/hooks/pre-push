@@ -1,0 +1,31 @@
+#!/bin/sh
+# Reject pushes that would break unRAID's plugin-manager XML parser.
+# Tries xmllint first, falls back to Python's stdlib ElementTree.
+# Install via scripts/install-hooks.sh.
+set -e
+
+PLG_FILE="hpe-mgmt.plg"
+[ -f "$PLG_FILE" ] || exit 0
+
+if command -v xmllint >/dev/null 2>&1; then
+    if ! xmllint --noout "$PLG_FILE" 2>/dev/null; then
+        printf '\033[31m[pre-push] %s is not valid XML — push aborted.\033[0m\n' "$PLG_FILE" >&2
+        xmllint --noout "$PLG_FILE" >&2 || true
+        exit 1
+    fi
+elif command -v python3 >/dev/null 2>&1; then
+    if ! python3 -c '
+import sys, xml.etree.ElementTree as ET
+try:
+    ET.parse(sys.argv[1])
+except ET.ParseError as e:
+    sys.stderr.write(f"  {e}\n")
+    sys.exit(1)
+' "$PLG_FILE"; then
+        printf '\033[31m[pre-push] %s is not valid XML — push aborted.\033[0m\n' "$PLG_FILE" >&2
+        printf '\033[33mTip: raw angle brackets in CHANGES (e.g. literal element-name markup) parse as XML element starts. Use plain text.\033[0m\n' >&2
+        exit 1
+    fi
+else
+    printf '\033[33m[pre-push] WARN: no xmllint or python3 available — skipping .plg validation.\033[0m\n' >&2
+fi
