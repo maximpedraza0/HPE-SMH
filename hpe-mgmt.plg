@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.29a">
+<!ENTITY version   "2026.04.29b">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -22,6 +22,15 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.29b
+- ux(settings): the v29a paren-grouped layout rendered as four
+  separate lines (paren, label, paren) under the unRAID page
+  parser — markdown was splitting the inline tokens.  Replace
+  the inline-with-parens approach with a sub-row layout:  each
+  "start at boot" checkbox is now on its own line, indented
+  under the parent package with a leading "&#x21B3;" arrow, so
+  the visual subordination is obvious at a glance.
+
 ### 2026.04.29a
 - ux(settings): each "start at boot" checkbox now spells out the
   package it controls — "start hp-ocsbbd at boot", "start hp-tg3sd
