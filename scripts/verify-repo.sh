@@ -75,7 +75,10 @@ process_repo() {
     mv "${repomd_asc}.new" "${repomd_asc}"
 
     local repomd_sha1; repomd_sha1="$(sha1sum "${repomd}" | awk '{print $1}')"
-    local stamp_file="${slug_dir}/.stamp.${repomd_sha1}"
+    # v2: 4-column output (base url url type hash).  Old caches written by
+    # the v1 stripe (3 columns) won't carry this stamp prefix, so they
+    # transparently miss-and-rebuild on first run after upgrade.
+    local stamp_file="${slug_dir}/.stamp.v2.${repomd_sha1}"
 
     if [[ -s "${map_file}" && -f "${stamp_file}" ]]; then
         log "[${slug}] checksum-map cached (${repomd_sha1:0:12}...)"
@@ -118,8 +121,12 @@ process_repo() {
     # Awk-parse primary.xml.  We output the full URL of each package (base
     # url + <location href>) so downstream doesn't need to know the
     # per-repo on-disk layout (HPE SDR is flat, AlmaLinux uses Packages/).
+    # We also echo back the original base URL we were given, so fetch-hpe
+    # can group entries by repo without having to guess the base from a
+    # full URL (which is ambiguous when the layout includes a Packages/x/
+    # subdirectory).
     # Output columns:
-    #   <full-rpm-url>  <checksum-type>  <checksum-value>
+    #   <base-url>  <full-rpm-url>  <checksum-type>  <checksum-value>
     awk -v base="${base_url}" '
         /<package / { loc=""; ck=""; ck_type=""; inpkg=1 }
         inpkg && /<checksum [^>]*pkgid="YES"/ {
@@ -130,7 +137,7 @@ process_repo() {
             if (match($0, /href="[^"]+"/)) loc = substr($0, RSTART+6, RLENGTH-7)
         }
         /<\/package>/ && inpkg {
-            if (loc && ck && ck_type) print base "/" loc, ck_type, ck
+            if (loc && ck && ck_type) print base, base "/" loc, ck_type, ck
             inpkg=0
         }
     ' "${primary_xml}" > "${map_file}.new" \
