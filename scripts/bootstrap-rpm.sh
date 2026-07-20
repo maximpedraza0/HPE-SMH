@@ -14,11 +14,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="${PLUGIN_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 
 SLACK_MIRROR="${SLACK_MIRROR:-https://slackware.uk/slackware}"
-SLACK_BRANCH="${SLACK_BRANCH:-slackware64-current}"
+# Must be a frozen release, never slackware64-current: on the rolling branch a
+# pinned filename 404s the moment the package is bumped upstream, which is what
+# broke installs when rpm went 6.0.1 -> 6.0.2. Verified on Unraid 7.3.0
+# (Slackware 15.0+, glibc 2.42): these 15.0 binaries resolve and run fine.
+SLACK_BRANCH="${SLACK_BRANCH:-slackware64-15.0}"
 
-RPM_PKG="rpm-6.0.1-x86_64-1.txz"
-POPT_PKG="popt-1.19-x86_64-1.txz"
-LUA_PKG="lua-5.4.8-x86_64-1.txz"    # rpm 6.x links against liblua.so.5
+RPM_PKG="rpm-4.16.1.3-x86_64-4.txz"
+POPT_PKG="popt-1.18-x86_64-3.txz"
 
 log() { printf '[bootstrap-rpm] %s\n' "$*"; }
 die() { printf '[bootstrap-rpm] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -53,21 +56,17 @@ fetch_pkg() {
 }
 
 fetch_pkg "${POPT_PKG}" "l"
-fetch_pkg "${LUA_PKG}"  "d"
 fetch_pkg "${RPM_PKG}"  "ap"
 
 if ! command -v rpm >/dev/null 2>&1; then
     log "installing popt"
     installpkg --terse "${CACHE_DIR}/${POPT_PKG}"
-    log "installing lua"
-    installpkg --terse "${CACHE_DIR}/${LUA_PKG}"
     log "installing rpm"
     installpkg --terse "${CACHE_DIR}/${RPM_PKG}"
 fi
 
-# rpm can link against liblua.so.5 even when lua got installed after: run
-# ldconfig to ensure the new symlinks (liblua.so.5 -> liblua.so.5.4) are
-# picked up before we invoke rpm.
+# The packages ship versioned libraries (librpm.so.9.1.3, libpopt.so.0.0.1);
+# ldconfig creates the SONAME symlinks rpm actually links against.
 ldconfig 2>/dev/null || true
 
 # rpm2targz ships with the plugin. Install as /usr/sbin/rpm2targz
