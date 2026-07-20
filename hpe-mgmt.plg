@@ -2,13 +2,13 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.29k">
+<!ENTITY version   "2026.04.29l">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
 <!ENTITY plugdir   "/usr/local/emhttp/plugins/&name;">
 <!ENTITY cfgdir    "/boot/config/plugins/&name;">
-<!ENTITY tarball   "&cfgdir;/tree.tar.gz">
+<!ENTITY tarball   "&cfgdir;/tree-&version;.tar.gz">
 ]>
 
 <PLUGIN
@@ -22,6 +22,18 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.29l
+- fix(plg): version-stamp the tree tarball.  The FILE entity was a fixed
+  &cfgdir;/tree.tar.gz, and unRAID's plugin manager logs "skipping:
+  tree.tar.gz already exists" rather than re-downloading it.  So once a
+  tarball was cached on the flash it was never refreshed: every boot
+  re-unpacked the old tree over the plugin directory and silently
+  reverted any published fix.  That is how v29k's bootstrap-rpm change
+  appeared to install cleanly yet still died on reboot asking for
+  rpm-6.0.1.  The name now carries &version;, so each release forces a
+  fresh download, and the unpack step deletes every other tree*.tar.gz
+  (including the legacy unversioned one) so no stale tree survives.
+
 ### 2026.04.29k
 - fix(bootstrap-rpm): the rpm/popt/lua filenames were pinned against
   slackware64-current, which is a rolling branch — a pinned name 404s
@@ -260,6 +272,15 @@ rm -rf "${PLUGIN_DIR}"
 mkdir -p "${PLUGIN_DIR}"
 # Git archive tarball contains a single top-level directory; strip it.
 tar -xzf "${TARBALL}" -C "${PLUGIN_DIR}" --strip-components=1
+
+# The plugin manager skips downloading a FILE that already exists on the
+# flash, so a fixed tree would never reach the boot path while an older
+# tarball sat there — it gets re-unpacked on every boot and silently
+# reverts the deployed code. The name is version-stamped to force a fresh
+# download; drop every other tree tarball (including the pre-&version;
+# unversioned tree.tar.gz) so a stale tree can never be re-deployed.
+find "${CFG_DIR}" -maxdepth 1 -name 'tree*.tar.gz' \
+    ! -name "$(basename "${TARBALL}")" -print -delete 2>/dev/null || true
 
 echo "[&name;] running install pipeline"
 bash "${PLUGIN_DIR}/scripts/install.sh"
