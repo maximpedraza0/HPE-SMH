@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "hpe-mgmt">
 <!ENTITY author    "Max Pedraza">
-<!ENTITY version   "2026.04.29i">
+<!ENTITY version   "2026.04.29j">
 <!ENTITY launch    "Settings/hpe-mgmt">
 <!ENTITY gitURL    "https://github.com/maximpedraza0/HPE-SMH">
 <!ENTITY pluginURL "&gitURL;/raw/main/&name;.plg">
@@ -22,6 +22,15 @@
   min="6.12.0">
 
 <CHANGES>
+### 2026.04.29j
+- fix(hpilo): the builder image ran "cp /unraid-src/.config .config",
+  but Unraid 7.3.0 ships the kernel config as "config" with no leading
+  dot.  The cp failed and took the whole docker build down at step 7,
+  leaving "builder reported failure — iLO features may be unavailable".
+  The || echo "WARN" on the patch loop made it read like a patch
+  problem, when in fact it aborted before the first patch ever ran.
+  Now accepts either name so older releases keep building.
+
 ### 2026.04.29i
 - ux(settings): stop the progress-iframe auto-tail poller once output
   has stopped growing for 2 s.  v29e's setInterval ran every 250 ms

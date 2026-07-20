@@ -17,7 +17,10 @@ WORKDIR /build/linux-${KERNEL_VERSION}
 
 COPY unraid-src/ /unraid-src/
 
-RUN cp /unraid-src/.config .config && \
+# Unraid ships the kernel config as 'config' on 7.3+ and '.config' on older releases.
+RUN if [ -f /unraid-src/.config ]; then cp /unraid-src/.config .config; \
+    elif [ -f /unraid-src/config ]; then cp /unraid-src/config .config; \
+    else echo "ERROR: no kernel config in /unraid-src" >&2; exit 1; fi && \
     for p in /unraid-src/*.patch; do \
         echo "Applying $p..."; \
         patch -p1 < "$p" || echo "WARN: $p failed"; \
