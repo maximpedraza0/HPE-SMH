@@ -104,7 +104,7 @@ Install the plugin like any other via Community Applications, or directly:
 
 ```
 Plugins → Install Plugin →
-https://github.com/mpedraza/HPE-SMH/raw/main/hpe-mgmt.plg
+https://github.com/maximpedraza0/HPE-SMH/raw/main/hpe-mgmt.plg
 ```
 
 First install downloads the plugin tree tarball to `/boot/config/plugins/`,
@@ -306,5 +306,5 @@ the `CHANGES` block) before it reaches main.
 
 ## Support
 
-- Issues: https://github.com/mpedraza/HPE-SMH/issues
+- Issues: https://github.com/maximpedraza0/HPE-SMH/issues
 - Tested on: ML110 Gen9, DL360 Gen10 under unRAID 6.12 / 7.x
