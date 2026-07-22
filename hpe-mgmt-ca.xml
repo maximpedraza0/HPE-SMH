@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Plugin>
+  <Name>HPE Management</Name>
+  <PluginURL>https://raw.githubusercontent.com/maximpedraza0/HPE-SMH/main/hpe-mgmt.plg</PluginURL>
+  <PluginAuthor>Max Pedraza</PluginAuthor>
+  <!-- TODO: replace with the forums.unraid.net support thread before submitting. -->
+  <Support>https://forums.unraid.net/topic/REPLACE-ME/</Support>
+  <Project>https://github.com/maximpedraza0/HPE-SMH</Project>
+  <Icon>https://raw.githubusercontent.com/maximpedraza0/HPE-SMH/main/icons/hpe-mgmt.png</Icon>
+  <Category>Tools:System Plugins:</Category>
+  <Beta>False</Beta>
+  <Overview>
+Runs HPE ProLiant management tooling on Unraid. Provides the HPE CLI utilities (ssacli, hponcfg and friends) for Smart Array storage and iLO scripting, and on supported generations the Systems Management Homepage (SMH) web UI on port 2381.
+
+HPE ships these tools as RPMs targeting RHEL/CentOS, but Unraid is Slackware. The plugin bootstraps rpm and rpm2tgz, downloads the matching RPMs from the HPE Software Delivery Repository, verifies them against pinned GPG keys and checksums, converts them to .tgz and installs them with installpkg. No systemd and no foreign init system: services run under a SysV-style wrapper.
+
+Three mutually exclusive stacks, switchable at runtime from the settings page:
+
+modern - ssacli and hponcfg from the HPE SDR MCP tree. CLI only. Use this for storage and iLO scripting or SNMP monitoring, and on Gen10 Plus / Gen11 where there is no SMH path.
+
+legacy - everything in modern plus hpsmh, hp-health, hp-snmp-agents and hp-ams, which gives the five-panel SMH web UI on port 2381. For Gen8, Gen9 and Gen10.
+
+disabled - installs nothing and stops everything, so the plugin can sit dormant while you diagnose interference.
+
+On the legacy stack the plugin picks the last SPP release that still shipped matching component packages for the detected server generation (Gen8 to 2020.09.0, Gen9 to 2021.10.0, Gen10 to 2022.03.0), and that choice can be overridden in the settings page.
+
+Requires an HPE ProLiant server. Tested on a DL380 Gen8 running Unraid 7.3.0.
+  </Overview>
+</Plugin>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Maintainer>
+  <Icon>https://raw.githubusercontent.com/maximpedraza0/HPE-SMH/main/icons/hpe-mgmt.png</Icon>
+  <Profile>Maintainer of HPE Management for Unraid — running ProLiant hardware on a Slackware host.</Profile>
+  <!-- TODO: replace with your forums.unraid.net profile URL before submitting. -->
+  <Forum>https://forums.unraid.net/profile/REPLACE-ME/</Forum>
+  <!-- <DonateLink>https://paypal.me/...</DonateLink> -->
+  <!-- <DonateText>If my work is appreciated, please consider donating.</DonateText> -->
+  <!-- <WebPage>https://...</WebPage> -->
+  <!-- <Discord>https://discord.gg/...</Discord> -->
+</Maintainer>

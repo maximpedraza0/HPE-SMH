@@ -100,7 +100,8 @@ host lacks them.
 
 ## Installation
 
-Install the plugin like any other via Community Applications, or directly:
+Not on Community Applications yet — a submission is being prepared. Install
+directly:
 
 ```
 Plugins → Install Plugin →
